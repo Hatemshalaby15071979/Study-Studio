@@ -102,7 +102,7 @@ Transfer and install Node.js and Rust from offline installers.
 ### Clone and Setup
 
 ```bash
-git clone https://github.com/HatemShelby/study-studio.git
+git clone https://github.com/<YOUR_GITHUB_ORG>/Study-Studio.git
 cd study-studio/apps/desktop
 npm install
 npm run tauri:build

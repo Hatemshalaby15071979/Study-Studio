@@ -16,13 +16,7 @@ Study Studio is the learning engine used by **Helix Prime** and **Helix Educatio
 
 ## Releases
 
-Study Studio **v0.2.0** is the current development version. The latest published release, **v0.1.0**, is available as a Windows x64 installer from the repository releases. Download and run — no build steps required.
-
-| File | Type |
-| --- | --- |
-| [study-studio_0.1.0_x64-setup.exe](https://github.com/HatemShelby/study-studio/releases/download/v0.1.0/study-studio_0.1.0_x64-setup.exe) | NSIS installer (recommended) |
-| [study-studio_0.1.0_x64_en-US.msi](https://github.com/HatemShelby/study-studio/releases/download/v0.1.0/study-studio_0.1.0_x64_en-US.msi) | MSI installer |
-| [study-studio_0.1.0_x64.exe](https://github.com/HatemShelby/study-studio/releases/download/v0.1.0/study-studio_0.1.0_x64.exe) | Portable executable |
+Study Studio **v0.2.0** is the current development version. **No installer is currently published.** Earlier links pointed at a superseded account and returned 404; they have been removed rather than repointed at something that does not exist. Build from source with `npm run tauri:build` (see [Build from Source](#2-build-from-source)), or watch the releases page.
 
 **Requirement:** a local model runtime. [LM Studio](https://lmstudio.ai) is the recommended one; [Ollama](https://ollama.com) is also supported. Neither is bundled — see [Prerequisites](#prerequisites).
 
@@ -72,9 +66,9 @@ If the server is not running, the app tells you which runtime it looked for inst
 
 ## Quick Start
 
-### 1. Install from Release (no build required)
+### 1. Install from Release
 
-Download the installer for your platform from the [GitHub Releases page](https://github.com/HatemShelby/study-studio/releases/tag/v0.1.0) and run it. The app works out of the box as long as LM Studio (or Ollama) is installed and running.
+**No installer is currently published.** The releases page carries no binary assets, and earlier links pointed at a superseded account that returned 404. Build from source with the steps below, or watch the [releases page](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/releases).
 
 ### 2. Build from Source
 
