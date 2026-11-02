@@ -74,3 +74,18 @@ Models are tried in order:
 4. `llama3.2:3b` (lightweight fallback)
 5. `qwen2.5:7b` (backup)
 6. `mistral:7b` (backup)
+
+## Local audio renderer boundary
+
+Text generation remains in the provider-neutral AI Runtime. Audio rendering is
+a separate renderer contract in `src/lib/audioRenderers.ts`; Piper continues
+through its existing Tauri commands and remains the default. Renderer
+preferences are stored locally with backward-compatible defaults.
+
+VoiceStudio discovery is a loopback-only Rust probe of its documented
+`/.well-known/voicestudio-speech` contract. The advertised
+`voicestudio.speech.v1` protocol covers transcription, not TTS. The adapter
+therefore reports the service/version but deliberately does not render,
+discover TTS voices, or claim engine lifecycle controls. Automatic Piper
+fallback is allowed only when the user explicitly enables it before a render
+starts. See [Local audio rendering](./VOICE_RENDERING.md).

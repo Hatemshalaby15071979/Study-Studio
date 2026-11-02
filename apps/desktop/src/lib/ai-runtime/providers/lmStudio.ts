@@ -707,6 +707,17 @@ export class LMStudioProvider extends OpenAICompatibleProvider {
     }
   }
 
+  async isEngineIdle(): Promise<boolean | undefined> {
+    if (this.loadEndpointAvailable === false) return undefined;
+    try {
+      const models = await this.listModels(true);
+      if (models.some((model) => model.loaded === undefined)) return undefined;
+      return models.every((model) => model.loaded === false);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Poll the listing until the model reports as loaded, or the timeout lapses. */
   private async waitUntilLoaded(modelId: string, timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
@@ -939,6 +950,7 @@ export function createLMStudioProvider(): LMStudioProvider {
       description:
         "Local inference via the LM Studio server. Models are listed and loaded on demand — no need to pre-load them in LM Studio.",
       transport: "http",
+      local: true,
     },
     baseUrl: "http://localhost:1234/v1",
   });

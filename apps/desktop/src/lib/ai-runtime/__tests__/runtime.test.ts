@@ -525,13 +525,23 @@ describe("AIRuntime — completions", () => {
     );
   });
 
-  it("routes streaming through a streaming-capable provider", () => {
-    const streamChat = jest.fn().mockReturnValue((async function* () {})());
+  it("routes streaming through a streaming-capable provider", async () => {
+    const streamChat = jest.fn().mockReturnValue((async function* () {
+      yield "chunk";
+    })());
     const runtime = runtimeWith(makeProvider("a", ["chat", "streaming"], { streamChat }));
 
-    runtime.streamChat([{ role: "user", content: "hi" }]);
+    const chunks: string[] = [];
+    for await (const chunk of runtime.streamChat([{ role: "user", content: "hi" }])) {
+      chunks.push(chunk);
+    }
 
-    expect(streamChat).toHaveBeenCalled();
+    expect(chunks).toEqual(["chunk"]);
+    expect(streamChat).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      undefined
+    );
   });
 
   it("throws when the selected provider cannot stream", () => {
@@ -686,6 +696,67 @@ describe("AIRuntime — model lifecycle", () => {
 
   it("is a no-op when the provider is unknown", async () => {
     await expect(runtimeWith().unloadModel("m", "nope")).resolves.toBeUndefined();
+  });
+});
+
+describe("AIRuntime — audio preparation", () => {
+  it("unloads the selected resident model and waits for idle confirmation", async () => {
+    const isEngineIdle = jest
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const unloadModel = jest.fn().mockResolvedValue(undefined);
+    const provider = makeProvider("local", ["chat"], {
+      descriptor: { id: "local", name: "local", transport: "http", local: true },
+      isEngineIdle,
+      isModelLoaded: jest.fn().mockResolvedValue(true),
+      unloadModel,
+    });
+    const runtime = runtimeWith(provider);
+    runtime.session.setProvider("local");
+    runtime.session.setModel("m");
+    const states: string[] = [];
+
+    await runtime.prepareForAudio((state) => states.push(state), new AbortController().signal);
+
+    expect(unloadModel).toHaveBeenCalledWith("m");
+    expect(states).toEqual(["unloading", "waiting"]);
+    expect(isEngineIdle).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not unload the selected model when another local runtime is busy", async () => {
+    const unloadModel = jest.fn().mockResolvedValue(undefined);
+    const selected = makeProvider("selected", ["chat"], {
+      descriptor: { id: "selected", name: "selected", transport: "http", local: true },
+      isEngineIdle: jest.fn().mockResolvedValue(false),
+      isModelLoaded: jest.fn().mockResolvedValue(true),
+      unloadModel,
+    });
+    const external = makeProvider("external", ["chat"], {
+      descriptor: { id: "external", name: "external", transport: "http", local: true },
+      isEngineIdle: jest.fn().mockResolvedValue(false),
+    });
+    const runtime = runtimeWith(selected, external);
+    runtime.session.setProvider("selected");
+    runtime.session.setModel("m");
+
+    await expect(
+      runtime.prepareForAudio(() => undefined, new AbortController().signal)
+    ).rejects.toThrow(/resident in external/);
+    expect(unloadModel).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when local model residency cannot be verified", async () => {
+    const provider = makeProvider("local", ["chat"], {
+      descriptor: { id: "local", name: "local", transport: "http", local: true },
+      isEngineIdle: jest.fn().mockResolvedValue(undefined),
+    });
+    const runtime = runtimeWith(provider);
+    runtime.session.setProvider("local");
+
+    await expect(
+      runtime.prepareForAudio(() => undefined, new AbortController().signal)
+    ).rejects.toThrow(/verify local residency/);
   });
 });
 

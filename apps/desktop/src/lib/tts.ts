@@ -6,6 +6,12 @@
 // it back through Tauri's asset protocol and exports it via the save dialog.
 import type { Lesson } from "@/types";
 import { isTauri, invokeTauri } from "./tauri";
+import {
+  getAudioRendererPreferences,
+  selectAudioRenderer,
+} from "./audioRenderers";
+
+export type { AudioRenderer, AudioRendererStatus } from "./audioRenderers";
 
 // ---------------------------------------------------------------------------
 // Voice catalog — mirrors the Rust VOICES constant in tts.rs
@@ -106,15 +112,13 @@ export async function generateAudio(
   voice?: string,
   format: "wav" | "mp3" = "wav"
 ): Promise<TtsInfo> {
-  if (!isTauri()) {
-    throw new Error("Audio files can only be generated inside the Study Studio desktop app.");
-  }
-  return invokeTauri<TtsInfo>("tts_synthesize", {
-    text: buildTtsText(lesson),
-    voice: voice ?? null,
+  const { path, size } = await (await selectAudioRenderer(getAudioRendererPreferences())).render({
+    voice,
     lessonId: lesson.id,
+    text: buildTtsText(lesson),
     format,
   });
+  return { path, size };
 }
 
 /**
@@ -129,19 +133,18 @@ export async function generatePodcastAudio(
   voiceB: string,
   format: "wav" | "mp3" = "wav"
 ): Promise<TtsInfo> {
-  if (!isTauri()) {
-    throw new Error("Audio files can only be generated inside the Study Studio desktop app.");
-  }
   if (!lesson.podcastScript || lesson.podcastScript.length === 0) {
     return generateAudio(lesson, voiceA, format);
   }
-  return invokeTauri<TtsInfo>("tts_synthesize_podcast", {
-    script: lesson.podcastScript,
-    voiceA,
-    voiceB,
+  const { path, size } = await (await selectAudioRenderer(getAudioRendererPreferences())).render({
     lessonId: lesson.id,
     format,
+    text: buildTtsText(lesson),
+    voice: voiceA,
+    voiceB,
+    podcastScript: lesson.podcastScript,
   });
+  return { path, size };
 }
 
 /** Ask the user where to save (native save dialog), returns the chosen path or null. */

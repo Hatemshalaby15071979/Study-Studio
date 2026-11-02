@@ -14,6 +14,153 @@ pub struct AppState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct VoiceStudioStatus {
+    state: String,
+    service: String,
+    version: Option<String>,
+    protocol: Option<String>,
+    automated_rendering_supported: bool,
+    message: String,
+}
+
+fn voice_studio_unavailable(message: &str) -> VoiceStudioStatus {
+    VoiceStudioStatus {
+        state: "unavailable".to_string(),
+        service: "VoiceStudio".to_string(),
+        version: None,
+        protocol: None,
+        automated_rendering_supported: false,
+        message: message.to_string(),
+    }
+}
+
+fn parse_voice_studio_status(
+    status: reqwest::StatusCode,
+    body: &[u8],
+) -> VoiceStudioStatus {
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return voice_studio_unavailable("VoiceStudio's local speech API is not running.");
+    }
+    if !status.is_success() {
+        return VoiceStudioStatus {
+            state: "unsupported".to_string(),
+            service: "VoiceStudio".to_string(),
+            version: None,
+            protocol: None,
+            automated_rendering_supported: false,
+            message: format!(
+                "The local service responded with HTTP {} instead of the documented speech contract.",
+                status.as_u16()
+            ),
+        };
+    }
+    if body.len() > 32 * 1024 {
+        return VoiceStudioStatus {
+            state: "unsupported".to_string(),
+            service: "VoiceStudio".to_string(),
+            version: None,
+            protocol: None,
+            automated_rendering_supported: false,
+            message: "The local service returned an unexpectedly large capability document.".to_string(),
+        };
+    }
+
+    let payload: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(value) => value,
+        Err(_) => {
+            return VoiceStudioStatus {
+                state: "unsupported".to_string(),
+                service: "VoiceStudio".to_string(),
+                version: None,
+                protocol: None,
+                automated_rendering_supported: false,
+                message: "The local service did not return valid VoiceStudio capability JSON.".to_string(),
+            };
+        }
+    };
+
+    let service = payload.get("service").and_then(|v| v.as_str());
+    let protocol = payload.get("protocol").and_then(|v| v.as_str());
+    let version = payload
+        .get("service_version")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    if service != Some("VoiceStudio") || protocol != Some("voicestudio.speech.v1") {
+        return VoiceStudioStatus {
+            state: "unsupported".to_string(),
+            service: service.unwrap_or("Unknown local service").to_string(),
+            version,
+            protocol: protocol.map(str::to_string),
+            automated_rendering_supported: false,
+            message: "The local service does not implement the documented VoiceStudio speech protocol.".to_string(),
+        };
+    }
+
+    VoiceStudioStatus {
+        state: "available".to_string(),
+        service: "VoiceStudio".to_string(),
+        version,
+        protocol: protocol.map(str::to_string),
+        automated_rendering_supported: false,
+        message: "VoiceStudio is reachable, but its documented local API supports transcription only, not TTS rendering.".to_string(),
+    }
+}
+
+#[tauri::command]
+async fn voice_studio_status() -> VoiceStudioStatus {
+    let client = match reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_millis(500))
+        .timeout(std::time::Duration::from_secs(2))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return voice_studio_unavailable("Could not initialize the local VoiceStudio check."),
+    };
+
+    let mut response = match client
+        .get("http://127.0.0.1:3900/.well-known/voicestudio-speech")
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => return voice_studio_unavailable("VoiceStudio's documented local speech API is not reachable at 127.0.0.1:3900."),
+    };
+    let status = response.status();
+    let mut body = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) if body.len() + chunk.len() <= 32 * 1024 => {
+                body.extend_from_slice(&chunk);
+            }
+            Ok(Some(_)) => {
+                return VoiceStudioStatus {
+                    state: "unsupported".to_string(),
+                    service: "VoiceStudio".to_string(),
+                    version: None,
+                    protocol: None,
+                    automated_rendering_supported: false,
+                    message: "The local service returned an unexpectedly large capability document.".to_string(),
+                };
+            }
+            Ok(None) => break,
+            Err(_) => {
+                return VoiceStudioStatus {
+                    state: "unsupported".to_string(),
+                    service: "VoiceStudio".to_string(),
+                    version: None,
+                    protocol: None,
+                    automated_rendering_supported: false,
+                    message: "Could not read the local VoiceStudio capability response.".to_string(),
+                };
+            }
+        }
+    }
+    parse_voice_studio_status(status, &body)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OllamaGenerateRequest {
     pub model: String,
     pub prompt: String,
@@ -812,7 +959,51 @@ pub fn run() {
             check_ffmpeg,
             discover_tts_voices,
             list_tts_languages,
+            voice_studio_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod voice_studio_status_tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_the_documented_voice_studio_speech_contract_without_claiming_tts() {
+        let status = parse_voice_studio_status(
+            reqwest::StatusCode::OK,
+            br#"{
+                "service":"VoiceStudio",
+                "service_version":"0.5.7",
+                "protocol":"voicestudio.speech.v1",
+                "endpoints":{"batch_transcription":{"path":"/v1/audio/transcriptions"}}
+            }"#,
+        );
+
+        assert_eq!(status.state, "available");
+        assert_eq!(status.version.as_deref(), Some("0.5.7"));
+        assert_eq!(status.protocol.as_deref(), Some("voicestudio.speech.v1"));
+        assert!(!status.automated_rendering_supported);
+        assert!(status.message.contains("transcription only"));
+    }
+
+    #[test]
+    fn rejects_a_different_local_service_or_protocol() {
+        let status = parse_voice_studio_status(
+            reqwest::StatusCode::OK,
+            br#"{"service":"Other","protocol":"other.v1"}"#,
+        );
+
+        assert_eq!(status.state, "unsupported");
+        assert!(!status.automated_rendering_supported);
+    }
+
+    #[test]
+    fn reports_an_absent_api_as_unavailable() {
+        let status = parse_voice_studio_status(reqwest::StatusCode::NOT_FOUND, b"");
+
+        assert_eq!(status.state, "unavailable");
+        assert!(!status.automated_rendering_supported);
+    }
 }

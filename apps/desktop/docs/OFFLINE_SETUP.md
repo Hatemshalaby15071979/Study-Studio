@@ -18,6 +18,18 @@ Two local runtimes are supported. **LM Studio is recommended**; Ollama works too
 - For audio export: **Piper** voice models **and** **ffmpeg**. Both are required —
   Piper produces the WAV, ffmpeg does the MP3 encode. Generation, quizzes, and
   glossaries work without them.
+- VoiceStudio is optional and is not required for audio export. Its documented
+  local API currently supports transcription, not TTS rendering; Study Studio
+  only checks its loopback capability endpoint and does not send scripts to it.
+
+## Desktop packaging status
+
+The current Tauri bundle configuration selects Windows **NSIS** and **MSI**
+targets. Linux has a `deb` configuration block, but Linux is not selected in
+the bundle targets; no Linux AppImage or macOS target is configured. Building
+from source on Linux or macOS should not be confused with a verified release
+bundle. VoiceStudio and all audio models remain separately installed
+prerequisites and are never included in Study Studio packages.
 
 ## Option A — LM Studio (recommended)
 
@@ -133,5 +145,6 @@ depend on a CDN.
 | Out of memory | Use a smaller model or a lower quantisation. The app requests at most a 32k context; a larger window set in LM Studio itself will use more memory. |
 | Slow generation | Enable GPU acceleration in your runtime's settings. |
 | Audio export produces no MP3 | Piper **and** ffmpeg are both required. Verify with `piper --help` and `ffmpeg -version`. |
+| VoiceStudio is reachable but cannot render | The inspected `voicestudio.speech.v1` contract exposes transcription only. Select Piper, or use VoiceStudio's own interface manually. |
 | Tauri build fails | Ensure Rust is up to date: `rustup update`. |
 | `next/font` build error | A stray `babel.config.js` or `.babelrc` disables SWC, which `next/font` requires. Remove it. |

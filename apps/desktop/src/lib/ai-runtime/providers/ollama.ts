@@ -27,6 +27,7 @@ const DESCRIPTOR: AIProviderDescriptor = {
   name: "Ollama (Local)",
   description: "Local inference via the Ollama runtime at localhost:11434.",
   transport: "tauri",
+  local: true,
 };
 
 /** Ollama's /api/show profile shape (returned by the Tauri command too). */
@@ -155,6 +156,18 @@ export class OllamaProvider implements AIProvider {
     // selection is not sharing the GPU with whatever was loaded before.
     await transport.releaseOtherModels(resolved).catch(() => undefined);
     return resolved;
+  }
+
+  async unloadModel(modelId: string): Promise<void> {
+    await transport.unloadModel(modelId);
+  }
+
+  async isModelLoaded(modelId: string): Promise<boolean> {
+    return (await transport.listResidentModelsStrict()).includes(modelId);
+  }
+
+  async isEngineIdle(): Promise<boolean> {
+    return (await transport.listResidentModelsStrict()).length === 0;
   }
 
   async getModelProfile(modelId: string): Promise<AIModelProfile | null> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useSyncExternalStore, Suspense } from "react";
 import Link from "next/link";
 import { useAIRuntime } from "@/components/AIRuntimeProvider";
 import {
@@ -18,6 +18,14 @@ import {
   VOICES,
   type DiscoveredVoiceInfo,
 } from "@/lib/tts";
+import {
+  getAudioRendererPreferences,
+  saveAudioRendererPreferences,
+  voiceStudioAudioRenderer,
+  type AudioRendererPreferences,
+  type AudioRendererStatus,
+} from "@/lib/audioRenderers";
+import { workloadCoordinator } from "@/lib/workloadCoordinator";
 
 // ---------------------------------------------------------------------------
 // Mode summary definitions (spec §6)
@@ -100,6 +108,14 @@ const PROVIDERS: ProviderDisplay[] = [
 // ---------------------------------------------------------------------------
 
 function SettingsContent() {
+  const workloadJobs = useSyncExternalStore(
+    workloadCoordinator.subscribe,
+    workloadCoordinator.getSnapshot,
+    workloadCoordinator.getSnapshot
+  );
+  const currentWorkload = [...workloadJobs]
+    .reverse()
+    .find((job) => ["queued", "preparing", "running", "unloading", "waiting"].includes(job.state));
   const {
     initialized,
     available,
@@ -125,6 +141,10 @@ function SettingsContent() {
   const [installedLanguages, setInstalledLanguages] = useState<string[]>([]);
   const [downloadingVoice, setDownloadingVoice] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState("");
+  const [audioRendererPreferences, setAudioRendererPreferences] =
+    useState<AudioRendererPreferences>(getAudioRendererPreferences);
+  const [voiceStudioStatus, setVoiceStudioStatus] =
+    useState<AudioRendererStatus | null>(null);
 
   // Model load state. A model can be *downloaded* without being *loaded*, and
   // only a loaded model can serve a request — so the two are shown separately
@@ -153,6 +173,37 @@ function SettingsContent() {
     })();
   }, []);
 
+  const refreshVoiceStudioStatus = useCallback(async () => {
+    try {
+      setVoiceStudioStatus(await voiceStudioAudioRenderer.status());
+    } catch (error) {
+      setVoiceStudioStatus({
+        state: "unavailable",
+        service: "VoiceStudio",
+        automatedRenderingSupported: false,
+        message: error instanceof Error
+          ? error.message
+          : "Could not check the local VoiceStudio API.",
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshVoiceStudioStatus();
+  }, [refreshVoiceStudioStatus]);
+
+  const updateAudioRendererPreferences = useCallback(
+    (next: AudioRendererPreferences) => {
+      if (!saveAudioRendererPreferences(next)) {
+        setVoiceError("Audio renderer preference could not be saved.");
+        return;
+      }
+      setVoiceError("");
+      setAudioRendererPreferences(next);
+    },
+    []
+  );
+
   // Populate the API key input when switching to an online provider.
   useEffect(() => {
     const provider = PROVIDERS.find((p) => p.id === selectedProvider);
@@ -177,12 +228,13 @@ function SettingsContent() {
       ]);
       setInstalledVoices(voices);
       setInstalledLanguages(langs);
+      await refreshVoiceStudioStatus();
     } catch {
       // Silent — the provider statuses already reflect the failure.
     } finally {
       setScanning(false);
     }
-  }, [refreshProviders]);
+  }, [refreshProviders, refreshVoiceStudioStatus]);
 
   const handleProviderChange = useCallback(
     (id: string) => {
@@ -633,6 +685,103 @@ function SettingsContent() {
                   ? "Provider is not reachable."
                   : "No models available for this provider."}
               </p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Voice & Language Discovery */}
+      <section className="w-full max-w-3xl mb-6 animate-slide-up">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-lg">🎙️</span>
+          <h2 className="font-semibold text-sm">Audio Renderer</h2>
+        </div>
+        <div className="card space-y-4">
+          <label className="block">
+            <span className="text-[11px] text-muted block mb-1.5">Renderer preference</span>
+            <select
+              value={audioRendererPreferences.renderer}
+              onChange={(event) => {
+                const renderer = event.target.value;
+                if (renderer === "piper" || renderer === "voicestudio" || renderer === "automatic") {
+                  updateAudioRendererPreferences({ ...audioRendererPreferences, renderer });
+                }
+              }}
+              className="input w-full max-w-sm"
+            >
+              <option value="piper">Piper (available locally)</option>
+              <option value="voicestudio">VoiceStudio</option>
+              <option value="automatic">Automatic (VoiceStudio, then Piper)</option>
+            </select>
+          </label>
+
+          <label className="flex items-start gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={audioRendererPreferences.fallbackToPiper}
+              onChange={(event) =>
+                updateAudioRendererPreferences({
+                  ...audioRendererPreferences,
+                  fallbackToPiper: event.target.checked,
+                })
+              }
+              className="mt-0.5"
+            />
+            <span>
+              Allow Piper fallback when the preferred renderer is unavailable or lacks automated TTS support.
+              Rendering errors never trigger a second engine or duplicate a job.
+            </span>
+          </label>
+
+          <div className="rounded-lg border border-card-border p-3 text-xs" aria-live="polite">
+            <div className="flex items-center justify-between gap-2">
+              <strong>VoiceStudio local status</strong>
+              <span className={`badge text-[10px] ${
+                voiceStudioStatus?.state === "available"
+                  ? "badge-green"
+                  : voiceStudioStatus?.state === "unsupported"
+                    ? "badge-secondary"
+                    : "badge-secondary"
+              }`}>
+                {voiceStudioStatus?.state ?? "checking"}
+                {voiceStudioStatus?.version ? ` · v${voiceStudioStatus.version}` : ""}
+              </span>
+            </div>
+            <p className="text-muted mt-2">
+              {voiceStudioStatus?.message ?? "Checking the documented loopback API…"}
+            </p>
+            <p className="text-muted mt-2">
+              Study Studio does not send scripts or audio to this status check. VoiceStudio's
+              documented API currently exposes transcription, not automated TTS rendering or
+              TTS voice/language discovery. Use VoiceStudio manually for rendering, or select Piper.
+            </p>
+            <button
+              type="button"
+              onClick={() => void refreshVoiceStudioStatus()}
+              className="btn btn-ghost text-xs mt-2"
+            >
+              Recheck local status
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-card-border p-3 text-xs" aria-live="polite">
+            <strong>Workload queue</strong>
+            {currentWorkload ? (
+              <>
+                <p className="text-muted mt-2">
+                  {currentWorkload.kind} · {currentWorkload.state}
+                  {currentWorkload.progress
+                    ? ` · ${currentWorkload.progress.current}/${currentWorkload.progress.total}`
+                    : ""}
+                </p>
+                <p className="text-muted mt-1">
+                  Started {currentWorkload.startedAt
+                    ? new Date(currentWorkload.startedAt).toLocaleTimeString()
+                    : "waiting in FIFO queue"}
+                </p>
+              </>
+            ) : (
+              <p className="text-muted mt-2">No active workload.</p>
             )}
           </div>
         </div>

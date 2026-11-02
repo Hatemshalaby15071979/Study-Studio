@@ -441,6 +441,38 @@ export async function listResidentModels(): Promise<string[]> {
   }
 }
 
+/** Strict residency probe for lifecycle arbitration; unreachable is an error. */
+export async function listResidentModelsStrict(): Promise<string[]> {
+  const res = await runtimeFetch(`${OLLAMA_URL}/api/ps`, {
+    signal: AbortSignal.timeout(5000),
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Ollama residency check failed (${res.status}).`);
+  }
+  const data: unknown = await res.json();
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !Array.isArray((data as { models?: unknown }).models)
+  ) {
+    throw new Error("Ollama returned an invalid residency response.");
+  }
+  return (data as { models: { model?: string; name?: string }[] }).models
+    .map((model) => model?.model || model?.name || "")
+    .filter(Boolean);
+}
+
+/** Unload a resident Ollama model using its documented keep_alive: 0 request. */
+export async function unloadModel(modelId: string): Promise<void> {
+  if (!modelId.trim()) throw new Error("A model id is required to unload Ollama.");
+  await ollamaFetch(
+    "/api/generate",
+    { model: modelId, prompt: "", keep_alive: 0 },
+    AbortSignal.timeout(10_000)
+  );
+}
+
 /**
  * Unload every resident model except `keepModelId`.
  *

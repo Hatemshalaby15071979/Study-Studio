@@ -7,6 +7,7 @@
 import { noCapabilities, supportedCapabilities, supports } from "./capabilities";
 import { createConfig, type AIRuntimeConfig } from "./config";
 import { HealthMonitor } from "./healthMonitor";
+import { workloadCoordinator } from "../workloadCoordinator";
 import { ModelRegistry } from "./modelRegistry";
 import { ProviderRegistry } from "./providerRegistry";
 import { SessionManager } from "./session";
@@ -252,7 +253,12 @@ export class AIRuntime {
     model?: string
   ): Promise<string> {
     const provider = this.selectProvider({ requires: ["chat"] });
-    return provider.chat(messages, this.mergeOptions(options), model);
+    return workloadCoordinator.run(
+      "text",
+      ({ signal }) =>
+        provider.chat(messages, { ...this.mergeOptions(options), signal }, model),
+      options?.signal
+    );
   }
 
   /** Single-prompt completion through the selected provider. */
@@ -263,7 +269,12 @@ export class AIRuntime {
     model?: string
   ): Promise<string> {
     const provider = this.selectProvider({ requires: ["chat"] });
-    return provider.generate(prompt, system, this.mergeOptions(options), model);
+    return workloadCoordinator.run(
+      "text",
+      ({ signal }) =>
+        provider.generate(prompt, system, { ...this.mergeOptions(options), signal }, model),
+      options?.signal
+    );
   }
 
   /** Streamed chat completion through a provider advertising `streaming`. */
@@ -276,7 +287,12 @@ export class AIRuntime {
     if (!provider.streamChat) {
       throw new Error("Selected provider does not expose streaming chat");
     }
-    return provider.streamChat(messages, this.mergeOptions(options), model);
+    return workloadCoordinator.runStream(
+      "text",
+      ({ signal }) =>
+        provider.streamChat!(messages, { ...this.mergeOptions(options), signal }, model),
+      options?.signal
+    );
   }
 
   /** Embeddings through a provider advertising `embeddings`. */
@@ -285,7 +301,7 @@ export class AIRuntime {
     if (!provider.embeddings) {
       throw new Error("Selected provider does not expose embeddings");
     }
-    return provider.embeddings(input, model);
+    return workloadCoordinator.run("text", () => provider.embeddings!(input, model));
   }
 
   // ─── Models ────────────────────────────────────────────────────────────
@@ -302,35 +318,34 @@ export class AIRuntime {
 
   /** Resolve a model id to use for a request (pinned session model wins). */
   async ensureModel(preferredModel?: string, providerId?: string): Promise<string> {
-    const id = providerId ?? this.resolveProviderId();
-    const provider = this.providers.get(id);
-    if (!provider) {
-      throw new Error(`No AI provider registered with id "${id}"`);
-    }
+    return workloadCoordinator.run("model-management", async () => {
+      const id = providerId ?? this.resolveProviderId();
+      const provider = this.providers.get(id);
+      if (!provider) {
+        throw new Error(`No AI provider registered with id "${id}"`);
+      }
 
-    // Explicit selection re-pins. An implicit resolve keeps the session pin
-    // when this provider can still serve it, so a background ensureModel call
-    // cannot silently replace the user's choice with the recommendation.
-    if (preferredModel) {
-      const resolved = await provider.ensureModel(preferredModel);
-      this.session.setModel(resolved);
-      return resolved;
-    }
-
-    const pin = this.session.getModel();
-    if (pin) {
-      try {
-        const resolved = await provider.ensureModel(pin);
+      if (preferredModel) {
+        const resolved = await provider.ensureModel(preferredModel);
         this.session.setModel(resolved);
         return resolved;
-      } catch {
-        // Pin no longer installed — fall through to the recommendation.
       }
-    }
 
-    const resolved = await provider.ensureModel(undefined);
-    this.session.setModel(resolved);
-    return resolved;
+      const pin = this.session.getModel();
+      if (pin) {
+        try {
+          const resolved = await provider.ensureModel(pin);
+          this.session.setModel(resolved);
+          return resolved;
+        } catch {
+          // A stale pin falls through to the provider's recommendation.
+        }
+      }
+
+      const resolved = await provider.ensureModel(undefined);
+      this.session.setModel(resolved);
+      return resolved;
+    });
   }
 
   /** Best available model for a provider. */
@@ -378,21 +393,104 @@ export class AIRuntime {
     options?: AIModelLoadOptions,
     providerId?: string
   ): Promise<AIModelLoadResult> {
-    const id = providerId ?? this.resolveProviderId();
-    const provider = this.providers.get(id);
-    if (!provider) throw new Error(`No AI provider registered with id "${id}"`);
-    if (!provider.loadModel) {
-      throw new Error(
-        `Provider "${id}" cannot load models on demand. Load the model in its own runtime first.`
-      );
-    }
-    return provider.loadModel(modelId, options);
+    return workloadCoordinator.run("model-management", async () => {
+      const id = providerId ?? this.resolveProviderId();
+      const provider = this.providers.get(id);
+      if (!provider) throw new Error(`No AI provider registered with id "${id}"`);
+      if (!provider.loadModel) {
+        throw new Error(
+          `Provider "${id}" cannot load models on demand. Load the model in its own runtime first.`
+        );
+      }
+      return provider.loadModel(modelId, options);
+    });
   }
 
   /** Release a model from memory. No-op when the provider cannot unload. */
   async unloadModel(modelId: string, providerId?: string): Promise<void> {
-    const id = providerId ?? this.resolveProviderId();
-    await this.providers.get(id)?.unloadModel?.(modelId);
+    await workloadCoordinator.run("model-management", async () => {
+      const id = providerId ?? this.resolveProviderId();
+      await this.providers.get(id)?.unloadModel?.(modelId);
+    });
+  }
+
+  /**
+   * Release and verify the selected local text engine before starting audio.
+   * Models loaded by a different runtime are treated as external conflicts and
+   * are never unloaded by Study Studio.
+   */
+  async prepareForAudio(
+    setState: (state: "unloading" | "waiting") => void,
+    signal: AbortSignal
+  ): Promise<void> {
+    const selected = this.selectProvider({ requires: ["chat"] });
+    const localProviders = this.providers.all().filter(
+      (provider) => provider.descriptor.local === true
+    );
+    const residentProviders: AIProvider[] = [];
+    for (const provider of localProviders) {
+      if (signal.aborted) throw signal.reason;
+      const health = await provider.health();
+      if (!health.available) {
+        if (provider === selected) {
+          throw new Error(
+            `Cannot confirm the selected ${provider.descriptor.name} runtime is idle; audio rendering stopped.`
+          );
+        }
+        continue;
+      }
+      if (!provider.isEngineIdle) {
+        throw new Error(
+          `Cannot confirm whether ${provider.descriptor.name} has a resident model; audio rendering stopped.`
+        );
+      }
+      const idle = await provider.isEngineIdle();
+      if (idle === undefined) {
+        throw new Error(
+          `Cannot verify ${provider.descriptor.name} residency; audio rendering stopped fail-closed.`
+        );
+      }
+      if (!idle) residentProviders.push(provider);
+    }
+
+    const externalResident = residentProviders.find((provider) => provider !== selected);
+    if (externalResident) {
+      throw new Error(
+        `A model is resident in ${externalResident.descriptor.name}. Unload it in that runtime before rendering audio.`
+      );
+    }
+    if (residentProviders.length === 0) return;
+
+    const model = this.session.getModel();
+    if (!model || !selected.unloadModel || !selected.isModelLoaded || !selected.isEngineIdle) {
+      throw new Error(
+        `${selected.descriptor.name} cannot safely unload the selected model; audio rendering stopped.`
+      );
+    }
+    if ((await selected.isModelLoaded(model)) !== true) {
+      throw new Error(
+        `Could not identify the resident ${selected.descriptor.name} model; audio rendering stopped.`
+      );
+    }
+
+    setState("unloading");
+    await selected.unloadModel(model);
+    setState("waiting");
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      if (signal.aborted) throw signal.reason;
+      const nowIdle = await selected.isEngineIdle();
+      if (nowIdle === true) return;
+      if (nowIdle === undefined) {
+        throw new Error(
+          `Lost residency status for ${selected.descriptor.name}; audio rendering stopped.`
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    throw new Error(
+      `${selected.descriptor.name} did not confirm model unload within 15 seconds; audio rendering stopped.`
+    );
   }
 
   /**
@@ -411,6 +509,15 @@ export class AIRuntime {
    * callers that report status to the user get the truth.
    */
   async ensureModelLoaded(
+    preferredModel?: string,
+    providerId?: string
+  ): Promise<{ model: string; loaded: boolean; loadTimeSeconds?: number; message?: string }> {
+    return workloadCoordinator.run("model-management", () =>
+      this.ensureModelLoadedDirect(preferredModel, providerId)
+    );
+  }
+
+  private async ensureModelLoadedDirect(
     preferredModel?: string,
     providerId?: string
   ): Promise<{ model: string; loaded: boolean; loadTimeSeconds?: number; message?: string }> {

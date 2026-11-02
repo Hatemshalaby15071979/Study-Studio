@@ -33,6 +33,7 @@ Study Studio **v0.2.0** is the current development version. **No installer is cu
 - **Podcast Language & Voice Selection** — choose English or Arabic and pick the host voices **before** generating.
 - **3-View Navigation** — Lesson, Audiobook, and Podcast tabs per lesson.
 - **Voice Catalog** — 4 real Piper voices (English US ×2, English UK, Arabic Jordanian) with on-demand download from HuggingFace.
+- **Renderer preference** — Piper remains the default; Settings can check the documented local VoiceStudio service. Its current speech API is transcription-only, so automated VoiceStudio TTS is not claimed.
 - **On-Demand Audio Download** — audio files (MP3/WAV) are created only when you click Save; listening never writes files.
 - **Library Persistence** — every generated topic is saved to the Library with its generation date.
 - **Session-Pinned Model** — the selected model stays pinned for the whole generation; it never auto-switches mid-way.
@@ -50,6 +51,7 @@ Study Studio **v0.2.0** is the current development version. **No installer is cu
   - [Ollama](https://ollama.com) — supported alternative (default port `11434`).
 - [Rust](https://www.rust-lang.org/) toolchain (for building the Tauri desktop app)
 - [Piper](https://github.com/rhasspy/piper) TTS voice models **and** [ffmpeg](https://ffmpeg.org/) — both are required for audio export. ffmpeg is not optional if you want MP3 output.
+- VoiceStudio is not required or bundled; see [Local audio rendering](docs/VOICE_RENDERING.md) for its current API limitation and fallback behavior.
 - At least 8GB RAM (16GB recommended for 7B+ models)
 
 ## Local model setup
@@ -184,6 +186,7 @@ LMSTUDIO_LIVE=1 npx jest src/lib/ai-runtime/__tests__/lmStudio.live.test.ts
 - [DESIGN.md](DESIGN.md) — design system, tokens, and known deviations
 - [AUDIT.md](AUDIT.md) — codebase audit and fix plan
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — module layout
+- [VOICE_RENDERING.md](docs/VOICE_RENDERING.md) — renderer preference, VoiceStudio API status, and packaging limitations
 
 ## Tech Stack
 

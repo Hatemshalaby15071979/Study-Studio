@@ -201,6 +201,8 @@ export interface AIProviderDescriptor {
   description?: string;
   /** How this provider talks to its inference runtime. */
   transport: "http" | "tauri" | "sdk";
+  /** Whether its inference models are resident on this device. */
+  local?: boolean;
 }
 
 /** Result of a full provider discovery pass (health + models + caps). */
@@ -305,6 +307,9 @@ export interface AIProvider {
    * Returns `undefined` when the provider cannot tell.
    */
   isModelLoaded?(modelId: string): Promise<boolean | undefined>;
+
+  /** Optional capability: report whether the local engine has no resident models. */
+  isEngineIdle?(): Promise<boolean | undefined>;
 
   /**
    * Optional mutator: inject a bearer key at runtime (hosted OpenAI-compatible
