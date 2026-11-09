@@ -109,11 +109,12 @@ export default function Quiz({ questions, difficulty, lessonTitle, model, onEval
   const calculateScore = () => Object.values(results).filter((result) => result.correct).length;
 
   const handleEvaluateAll = async () => {
-    if (!allAnswered) return;
+    if (!allAnswered || !quizId) return;
     setEvaluating(true);
     setEvalError(null);
     try {
       const data = await evaluateQuiz({
+        quizId,
         questions,
         answers,
         difficulty: difficulty || "intermediate",

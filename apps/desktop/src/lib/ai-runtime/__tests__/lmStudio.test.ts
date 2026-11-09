@@ -1174,3 +1174,65 @@ describe("LMStudioProvider — one model resident at a time", () => {
   });
 });
 
+describe("LMStudioProvider — discovery and residency", () => {
+  it("discovers models and reports availability", async () => {
+    routeFetch({
+      "/api/v1/models": () => jsonResponse({ models: [nativeModel()] }),
+      "/v1/embeddings": () => errorResponse(404),
+    });
+
+    const status = await provider().discover();
+
+    expect(status.available).toBe(true);
+    expect(status.models).toHaveLength(1);
+    expect(status.recommendedModel).toBe("ibm/granite-4-h-tiny");
+  });
+
+  it("explains an empty native listing", async () => {
+    routeFetch({ "/api/v1/models": () => jsonResponse({ models: [] }) });
+
+    const status = await provider().discover();
+
+    expect(status.available).toBe(false);
+    expect(status.message).toMatch(/no downloaded models/i);
+  });
+
+  it("is idle when no model is resident", async () => {
+    routeFetch({ "/api/v1/models": () => jsonResponse({ models: [nativeModel()] }) });
+
+    await expect(provider().isEngineIdle()).resolves.toBe(true);
+  });
+
+  it("returns undefined when residency cannot be listed", async () => {
+    routeFetch({
+      "/api/v1/models": () => {
+        throw new Error("boom");
+      },
+    });
+
+    await expect(provider().isEngineIdle()).resolves.toBeUndefined();
+  });
+
+  it("treats an unreadable native listing as not loaded", async () => {
+    routeFetch({
+      "/api/v1/models": () => {
+        throw new Error("boom");
+      },
+    });
+
+    await expect(provider().unloadModel("m")).resolves.toBeUndefined();
+  });
+
+  it("falls back to the base profile when the server is not native", async () => {
+    routeFetch({
+      "/api/v1/models": () => jsonResponse({ data: [{ id: "x" }] }),
+      "/api/v0/models": () => jsonResponse({ data: [{ id: "x", state: "not-loaded" }] }),
+    });
+
+    const p = provider();
+    await p.listModels(true);
+
+    await expect(p.getModelProfile("x")).resolves.toBeNull();
+  });
+});
+

@@ -23,6 +23,8 @@ jest.mock("@/lib/ollama", () => ({
   generate: jest.fn(),
   releaseOtherModels: jest.fn().mockResolvedValue(undefined),
   listResidentModels: jest.fn().mockResolvedValue([]),
+  listResidentModelsStrict: jest.fn().mockResolvedValue([]),
+  unloadModel: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/lib/tauri", () => ({
@@ -62,6 +64,8 @@ beforeEach(() => {
   mockTransport.generate.mockResolvedValue("generated");
   mockTransport.releaseOtherModels.mockResolvedValue(undefined);
   mockTransport.listResidentModels.mockResolvedValue([]);
+  mockTransport.listResidentModelsStrict.mockResolvedValue([]);
+  mockTransport.unloadModel.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -539,5 +543,28 @@ describe("OllamaProvider — runtime lifecycle", () => {
     await new OllamaProvider().pullModel("llama3.2:3b");
 
     expect(mockInvoke).toHaveBeenCalledWith("pull_model", { modelName: "llama3.2:3b" });
+  });
+});
+
+describe("OllamaProvider — residency", () => {
+  it("delegates unload to the transport", async () => {
+    await new OllamaProvider().unloadModel("llama3.2:3b");
+
+    expect(mockTransport.unloadModel).toHaveBeenCalledWith("llama3.2:3b");
+  });
+
+  it("reports a model as loaded from the strict resident list", async () => {
+    mockTransport.listResidentModelsStrict.mockResolvedValue(["llama3.2:3b"]);
+
+    await expect(new OllamaProvider().isModelLoaded("llama3.2:3b")).resolves.toBe(true);
+    await expect(new OllamaProvider().isModelLoaded("other")).resolves.toBe(false);
+  });
+
+  it("is idle only when nothing is resident", async () => {
+    mockTransport.listResidentModelsStrict.mockResolvedValue([]);
+    await expect(new OllamaProvider().isEngineIdle()).resolves.toBe(true);
+
+    mockTransport.listResidentModelsStrict.mockResolvedValue(["llama3.2:3b"]);
+    await expect(new OllamaProvider().isEngineIdle()).resolves.toBe(false);
   });
 });

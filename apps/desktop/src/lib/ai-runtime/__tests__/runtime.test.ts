@@ -758,6 +758,110 @@ describe("AIRuntime — audio preparation", () => {
       runtime.prepareForAudio(() => undefined, new AbortController().signal)
     ).rejects.toThrow(/verify local residency/);
   });
+
+  it("fails closed when the selected runtime is unreachable", async () => {
+    const provider = makeProvider("local", ["chat"], {
+      descriptor: { id: "local", name: "local", transport: "http", local: true },
+      health: jest.fn().mockResolvedValue({
+        status: "offline",
+        available: false,
+        modelsCount: 0,
+        recommendedModel: "",
+      }),
+    });
+    const runtime = runtimeWith(provider);
+    runtime.session.setProvider("local");
+
+    await expect(
+      runtime.prepareForAudio(() => undefined, new AbortController().signal)
+    ).rejects.toThrow(/Cannot confirm the selected local runtime is idle/);
+  });
+
+  it("skips an unavailable non-selected runtime and unloads the selected one", async () => {
+    const unloadModel = jest.fn().mockResolvedValue(undefined);
+    const selected = makeProvider("selected", ["chat"], {
+      descriptor: { id: "selected", name: "selected", transport: "http", local: true },
+      isEngineIdle: jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true),
+      isModelLoaded: jest.fn().mockResolvedValue(true),
+      unloadModel,
+    });
+    const external = makeProvider("external", ["chat"], {
+      descriptor: { id: "external", name: "external", transport: "http", local: true },
+      health: jest.fn().mockResolvedValue({
+        status: "offline",
+        available: false,
+        modelsCount: 0,
+        recommendedModel: "",
+      }),
+    });
+    const runtime = runtimeWith(selected, external);
+    runtime.session.setProvider("selected");
+    runtime.session.setModel("m");
+
+    await runtime.prepareForAudio(() => undefined, new AbortController().signal);
+
+    expect(unloadModel).toHaveBeenCalledWith("m");
+  });
+
+  it("fails closed when the runtime cannot report residency at all", async () => {
+    const provider = makeProvider("local", ["chat"], {
+      descriptor: { id: "local", name: "local", transport: "http", local: true },
+      isEngineIdle: undefined,
+    });
+    const runtime = runtimeWith(provider);
+    runtime.session.setProvider("local");
+
+    await expect(
+      runtime.prepareForAudio(() => undefined, new AbortController().signal)
+    ).rejects.toThrow(/has a resident model/);
+  });
+
+  it("fails closed when there is no session model to unload", async () => {
+    const provider = makeProvider("local", ["chat"], {
+      descriptor: { id: "local", name: "local", transport: "http", local: true },
+      isEngineIdle: jest.fn().mockResolvedValue(false),
+      isModelLoaded: jest.fn().mockResolvedValue(true),
+      unloadModel: jest.fn().mockResolvedValue(undefined),
+    });
+    const runtime = runtimeWith(provider);
+    runtime.session.setProvider("local");
+
+    await expect(
+      runtime.prepareForAudio(() => undefined, new AbortController().signal)
+    ).rejects.toThrow(/cannot safely unload/);
+  });
+
+  it("fails closed when the selected model cannot be identified", async () => {
+    const provider = makeProvider("local", ["chat"], {
+      descriptor: { id: "local", name: "local", transport: "http", local: true },
+      isEngineIdle: jest.fn().mockResolvedValue(false),
+      isModelLoaded: jest.fn().mockResolvedValue(false),
+      unloadModel: jest.fn().mockResolvedValue(undefined),
+    });
+    const runtime = runtimeWith(provider);
+    runtime.session.setProvider("local");
+    runtime.session.setModel("m");
+
+    await expect(
+      runtime.prepareForAudio(() => undefined, new AbortController().signal)
+    ).rejects.toThrow(/Could not identify the resident local model/);
+  });
+
+  it("fails closed when residency status is lost while waiting", async () => {
+    const provider = makeProvider("local", ["chat"], {
+      descriptor: { id: "local", name: "local", transport: "http", local: true },
+      isEngineIdle: jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(undefined),
+      isModelLoaded: jest.fn().mockResolvedValue(true),
+      unloadModel: jest.fn().mockResolvedValue(undefined),
+    });
+    const runtime = runtimeWith(provider);
+    runtime.session.setProvider("local");
+    runtime.session.setModel("m");
+
+    await expect(
+      runtime.prepareForAudio(() => undefined, new AbortController().signal)
+    ).rejects.toThrow(/Lost residency status/);
+  });
 });
 
 describe("AIRuntime — ensureModelLoaded", () => {

@@ -1,15 +1,21 @@
 // Shared quiz evaluation orchestration (isomorphic — works in the Tauri
 // desktop shell and in a plain browser through the AI Runtime).
+//
+// Correctness and the score come from Helix Core, never from this module and
+// never from the model. The model contributes prose only: feedback and a
+// per-question explanation. If the core cannot be reached the evaluation
+// fails; there is no client-side scoring fallback.
 import { aiRuntime, extractJsonFromResponse, repairJson } from "./ai-runtime";
 import type { AIMessage } from "./ai-runtime";
+import { getScore, type CoreScore } from "./coreClient";
 import { validateEvaluateQuiz } from "./validation";
 import { EVALUATION_OUTPUT_JSON_SCHEMA } from "./validation";
 
 export interface QuizSubmission {
+  quizId: string;
   questions: {
     question: string;
     options: string[];
-    correctIndex: number;
     explanation: string;
   }[];
   answers: Record<number, number>;
@@ -32,68 +38,60 @@ export interface EvaluationResult {
   }[];
 }
 
+/** A question enriched with the core's authoritative correctness. */
+interface PromptQuestion {
+  questionIndex: number;
+  question: string;
+  options: string[];
+  userAnswer: number;
+  correctAnswer: number;
+  userAnswerText: string;
+  correctAnswerText: string;
+  isCorrect: boolean;
+  explanation: string;
+}
+
 export async function evaluateQuiz(body: unknown, model?: string): Promise<EvaluationResult> {
   const validated = validateEvaluateQuiz(body) as QuizSubmission;
+  const { quizId, questions, difficulty, lessonTitle } = validated;
 
-  const { questions, answers, difficulty, lessonTitle } = validated;
+  // The core is the authority on correctness. A failure here is fatal for the
+  // evaluation: the old local-scoring fallback is exactly what this change
+  // removes.
+  const score = await getScore(quizId);
+  const promptQuestions = buildPromptQuestions(score, questions);
+  const base = coreResult(score, promptQuestions, localFeedback(score));
 
-  // Check the selected runtime's health
   const health = await aiRuntime.health();
   if (!health.available) {
     return {
-      overallScore: 0,
-      totalQuestions: questions.length,
-      correctAnswers: 0,
+      ...base,
       rating: "offline",
-      feedback: "The AI runtime is not running. Start it to get AI-powered evaluation.",
-      perQuestion: questions.map((q, i) => ({
-        questionIndex: i,
-        userAnswer: answers[i] ?? -1,
-        correctAnswer: q.correctIndex,
-        isCorrect: (answers[i] ?? -1) === q.correctIndex,
-        explanation: q.explanation,
-      })),
+      feedback:
+        "The AI runtime is not running. The score comes from Helix Core; start the runtime for written feedback.",
     };
   }
 
   // Session model policy: evaluation uses ONLY the model the user selected
-  // (the lesson's model). If it isn't available we degrade to local scoring —
-  // we never auto-switch to a different model.
+  // (the lesson's model). If it isn't available we return the core score with
+  // local explanations — we never auto-switch to a different model.
   let modelToUse: string;
   try {
     modelToUse = model ? await aiRuntime.ensureModel(model) : health.recommendedModel;
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
-    console.warn(`[evaluation] Model unavailable; using local scoring: ${errMsg}`);
-    return buildLocalScoring(questions, answers);
+    console.warn(`[evaluation] Model unavailable; using core score with local explanations: ${errMsg}`);
+    return withLocalExplanations(base, promptQuestions);
   }
 
-  const perQuestion = questions.map((q, i) => {
-    const userAnswer = answers[i];
-    const isCorrect = userAnswer === q.correctIndex;
-    return {
-      questionIndex: i,
-      question: q.question,
-      options: q.options,
-      userAnswer: userAnswer ?? -1,
-      correctAnswer: q.correctIndex,
-      userAnswerText: userAnswer !== undefined ? q.options[userAnswer] || "Not answered" : "Not answered",
-      correctAnswerText: q.options[q.correctIndex],
-      isCorrect,
-      explanation: q.explanation,
-    };
-  });
-
-  const correctCount = perQuestion.filter((q) => q.isCorrect).length;
-  const total = questions.length;
-  const overallScore = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+  const { correctAnswers, totalQuestions, overallScore } = base;
 
   const evaluationPrompt = `You are an expert educational evaluator. A student has completed a quiz on "${lessonTitle}" at ${difficulty || "intermediate"} level.
 
 For each question, evaluate the student's answer and provide detailed, personalized feedback that will genuinely help them improve their understanding.
 
-Quiz Results (${correctCount}/${total} correct, ${overallScore}%):
-${perQuestion.map((q, i) => `
+Quiz Results (${correctAnswers}/${totalQuestions} correct, ${overallScore}%):
+${promptQuestions.map((q, i) => `
 Question ${i + 1}: "${q.question}"
 Options: ${q.options.map((o, j) => `${j}) ${o}`).join(", ")}
 Student's answer: ${q.userAnswerText} (option ${q.userAnswer})
@@ -104,9 +102,9 @@ ${q.isCorrect ? "CORRECT" : "INCORRECT - " + q.explanation}
 Respond ONLY with valid JSON:
 {
   "overallScore": ${overallScore},
-  "totalQuestions": ${total},
-  "correctAnswers": ${correctCount},
-  "rating": "${overallScore >= 80 ? "excellent" : overallScore >= 60 ? "good" : overallScore >= 40 ? "fair" : "needs_review"}",
+  "totalQuestions": ${totalQuestions},
+  "correctAnswers": ${correctAnswers},
+  "rating": "${ratingFor(overallScore)}",
   "feedback": "A paragraph of personalized educational feedback assessing the student's understanding of the topic, identifying specific knowledge gaps, and recommending what to focus on. Be constructive and specific.",
   "perQuestion": [
     {
@@ -141,7 +139,7 @@ Respond ONLY with valid JSON:
       evaluation = JSON.parse(repairJson(jsonStr)) as Record<string, unknown>;
     }
 
-    // Rebuild the per-question array from the LOCAL questions, not the model's.
+    // Rebuild the per-question array from the core's items, not the model's.
     //
     // Two defects lived in the mapping that used to be here. It took its LENGTH
     // from the model — `(evaluation.perQuestion).map(...)` — so a model that
@@ -153,49 +151,39 @@ Respond ONLY with valid JSON:
     // explanation the prompt asked for was thrown away and the UI rendered
     // `undefined` after an AI evaluation, while the local paths supplied one.
     //
-    // Correctness is also not the model's to decide. Whether an answer is right
-    // is a fact about `answers[i] === questions[i].correctIndex`, so the score,
-    // the counts, `rating` and `isCorrect` are all computed here instead of
-    // being spread in from the response. The model contributes exactly what
-    // only it can: the prose.
+    // Correctness is also not the model's to decide. The core already scored
+    // every item, so the score, the counts, `rating` and `isCorrect` are taken
+    // from it. The model contributes exactly what only it can: the prose.
     const modelPerQuestion = Array.isArray(evaluation["perQuestion"])
       ? (evaluation["perQuestion"] as Array<Record<string, unknown>>)
       : [];
 
     return {
-      overallScore,
-      totalQuestions: total,
-      correctAnswers: correctCount,
-      rating: ratingFor(overallScore),
+      ...base,
       feedback:
         typeof evaluation["feedback"] === "string" && evaluation["feedback"].trim()
           ? evaluation["feedback"]
-          : `You scored ${correctCount} out of ${total} (${overallScore}%).`,
-      perQuestion: questions.map((q, i) => {
-        const userAnswer = answers[i] ?? -1;
+          : base.feedback,
+      perQuestion: base.perQuestion.map((entry, i) => {
         const modelExplanation = modelPerQuestion[i]?.["explanation"];
         return {
-          questionIndex: i,
-          userAnswer,
-          correctAnswer: q.correctIndex,
-          isCorrect: userAnswer === q.correctIndex,
+          ...entry,
           // The model's explanation when it wrote one, otherwise the
           // explanation authored with the question — never `undefined`, which
           // is what the old mapping produced for every entry.
           explanation:
             typeof modelExplanation === "string" && modelExplanation.trim()
               ? modelExplanation
-              : q.explanation,
+              : entry.explanation,
         };
       }),
     };
   } catch (e) {
     const _err = e instanceof Error ? e : new Error(String(e));
-    console.warn(`[evaluation] ${modelToUse} failed; using local scoring:`, _err.message);
+    console.warn(`[evaluation] ${modelToUse} failed; using core score with local explanations:`, _err.message);
   }
 
-  // Fallback to non-AI evaluation
-  return buildLocalScoring(questions, answers);
+  return withLocalExplanations(base, promptQuestions);
 }
 
 /**
@@ -212,44 +200,67 @@ function ratingFor(score: number): EvaluationResult["rating"] {
   return "needs_review";
 }
 
-function buildLocalScoring(
-  questions: QuizSubmission["questions"],
-  answers: Record<number, number>
-): EvaluationResult {
-  const perQuestion = questions.map((q, i) => {
-    const userAnswer = answers[i];
-    const isCorrect = userAnswer === q.correctIndex;
+/** Enrich the core's items with the option text the prompt needs. */
+function buildPromptQuestions(
+  score: CoreScore,
+  questions: QuizSubmission["questions"]
+): PromptQuestion[] {
+  return score.items.map((item) => {
+    const authored = questions[item.position];
+    const options = authored?.options ?? [];
+    const userAnswer = item.selected_index ?? -1;
+    const correctAnswer = item.correct_index ?? -1;
     return {
-      questionIndex: i,
-      question: q.question,
-      options: q.options,
-      userAnswer: userAnswer ?? -1,
-      correctAnswer: q.correctIndex,
-      userAnswerText: userAnswer !== undefined ? q.options[userAnswer] || "Not answered" : "Not answered",
-      correctAnswerText: q.options[q.correctIndex],
-      isCorrect,
-      explanation: q.explanation,
+      questionIndex: item.position,
+      question: item.question || authored?.question || "",
+      options,
+      userAnswer,
+      correctAnswer,
+      userAnswerText: userAnswer >= 0 ? options[userAnswer] ?? "Not answered" : "Not answered",
+      correctAnswerText: correctAnswer >= 0 ? options[correctAnswer] ?? "" : "",
+      isCorrect: item.correct ?? false,
+      explanation: item.explanation || authored?.explanation || "",
     };
   });
+}
 
-  const correctCount = perQuestion.filter((q) => q.isCorrect).length;
-  const total = questions.length;
-  const overallScore = total > 0 ? Math.round((correctCount / total) * 100) : 0;
-
+/** The result the core alone can produce: authoritative score, raw explanations. */
+function coreResult(score: CoreScore, questions: PromptQuestion[], feedback: string): EvaluationResult {
   return {
-    overallScore,
-    totalQuestions: total,
-    correctAnswers: correctCount,
-    rating: ratingFor(overallScore),
-    feedback: `You scored ${correctCount} out of ${total} (${overallScore}%). Review the explanations below for each question to improve your understanding.`,
-    perQuestion: perQuestion.map((q) => ({
+    overallScore: score.percentage,
+    totalQuestions: score.total,
+    correctAnswers: score.correct,
+    rating: ratingFor(score.percentage),
+    feedback,
+    perQuestion: questions.map((q) => ({
       questionIndex: q.questionIndex,
       userAnswer: q.userAnswer,
       correctAnswer: q.correctAnswer,
       isCorrect: q.isCorrect,
-      explanation: q.isCorrect
-        ? `Correct! ${q.explanation}`
-        : `Incorrect. The correct answer was "${q.correctAnswerText}". ${q.explanation}`,
+      explanation: q.explanation,
     })),
+  };
+}
+
+function localFeedback(score: CoreScore): string {
+  return `You scored ${score.correct} out of ${score.total} (${score.percentage}%). Review the explanations below for each question to improve your understanding.`;
+}
+
+/** Add the "Correct! / Incorrect. The correct answer was …" framing. */
+function withLocalExplanations(
+  result: EvaluationResult,
+  questions: PromptQuestion[]
+): EvaluationResult {
+  return {
+    ...result,
+    perQuestion: result.perQuestion.map((entry, i) => {
+      const q = questions[i];
+      return {
+        ...entry,
+        explanation: entry.isCorrect
+          ? `Correct! ${entry.explanation}`
+          : `Incorrect. The correct answer was "${q?.correctAnswerText ?? ""}". ${entry.explanation}`,
+      };
+    }),
   };
 }

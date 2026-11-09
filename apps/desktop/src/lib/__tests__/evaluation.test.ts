@@ -1,5 +1,6 @@
 import { evaluateQuiz } from "@/lib/evaluation";
 import { aiRuntime, extractJsonFromResponse, repairJson } from "@/lib/ai-runtime";
+import { getScore, type CoreScore } from "@/lib/coreClient";
 
 // Characterisation tests for quiz evaluation — the code that decides a
 // student's score, so a bug here misgrades the user directly.
@@ -21,6 +22,12 @@ jest.mock("@/lib/ai-runtime", () => ({
   extractJsonFromResponse: jest.fn(),
   repairJson: jest.fn(),
 }));
+
+jest.mock("@/lib/coreClient", () => ({
+  getScore: jest.fn(),
+}));
+
+const mockGetScore = getScore as jest.Mock;
 
 const mockRuntime = aiRuntime as unknown as {
   health: jest.Mock;
@@ -47,14 +54,52 @@ function q(over: Partial<Question> = {}): Question {
   };
 }
 
-function submission(over: Record<string, unknown> = {}) {
+/** The score the mocked core returns for the next call. */
+let nextScore: CoreScore;
+
+/**
+ * Build the CoreScore the real service would produce for these questions and
+ * answers. Correctness is the core's job, so the mock must model it rather
+ * than have the test assert against the client's answer map.
+ */
+function scoreFrom(questions: Question[], answers: Record<number, number>): CoreScore {
+  const items = questions.map((question, position) => {
+    const selected = answers[position];
+    const answered = selected !== undefined;
+    const correct = answered && selected === question.correctIndex;
+    return {
+      item_id: `item-${position}`,
+      position,
+      question: question.question,
+      answered,
+      selected_index: answered ? selected : null,
+      correct: answered ? correct : null,
+      correct_index: answered ? question.correctIndex : null,
+      explanation: answered ? question.explanation : null,
+    };
+  });
+  const correctCount = items.filter((item) => item.correct === true).length;
   return {
+    quiz_id: "quiz-1",
+    total: items.length,
+    answered: items.filter((item) => item.answered).length,
+    correct: correctCount,
+    percentage: items.length > 0 ? Math.round((correctCount / items.length) * 100) : 0,
+    items,
+  };
+}
+
+function submission(over: Record<string, unknown> = {}) {
+  const body = {
+    quizId: "quiz-1",
     questions: [q()],
     answers: { 0: 0 },
     difficulty: "intermediate",
     lessonTitle: "The Water Cycle",
     ...over,
   };
+  nextScore = scoreFrom(body.questions as Question[], body.answers as Record<number, number>);
+  return body;
 }
 
 /** The AI's reply, as the code expects to parse it out of the raw response. */
@@ -79,6 +124,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(console, "warn").mockImplementation(() => {});
 
+  mockGetScore.mockImplementation(async () => nextScore);
   mockRuntime.health.mockResolvedValue({ available: true, recommendedModel: "llama3" });
   // Echo the requested model: the code uses ensureModel's RETURN value as the
   // model it then passes to chat, so a fixed return would make it impossible to
@@ -98,17 +144,17 @@ describe("evaluateQuiz — runtime offline", () => {
     mockRuntime.health.mockResolvedValue({ available: false });
   });
 
-  it("reports an offline rating rather than a zero score", async () => {
+  it("keeps the core score and marks the rating offline", async () => {
     const result = await evaluateQuiz(submission());
 
     expect(result.rating).toBe("offline");
-    expect(result.overallScore).toBe(0);
-    expect(result.correctAnswers).toBe(0);
+    expect(result.overallScore).toBe(100);
+    expect(result.correctAnswers).toBe(1);
     expect(result.totalQuestions).toBe(1);
-    expect(result.feedback).toMatch(/runtime is not running/i);
+    expect(result.feedback).toMatch(/Helix Core/i);
   });
 
-  it("still marks the answers it can judge locally", async () => {
+  it("still reports the core's per-question result", async () => {
     const result = await evaluateQuiz(submission({ answers: { 0: 1 } }));
 
     expect(result.perQuestion[0]).toEqual({
@@ -159,9 +205,9 @@ describe("evaluateQuiz — model resolution", () => {
     );
   });
 
-  it("degrades to local scoring when the model cannot be resolved", async () => {
+  it("degrades to the core score when the model cannot be resolved", async () => {
     // Session model policy: never auto-switch. A missing model must degrade to
-    // local scoring, not silently pick a different one.
+    // the core score with local explanations, not silently pick a different one.
     mockRuntime.ensureModel.mockRejectedValue(new Error("model not installed"));
 
     const result = await evaluateQuiz(submission(), "missing-model");
@@ -382,7 +428,7 @@ describe("evaluateQuiz — AI evaluation", () => {
     expect(result.feedback).toBe("Excellent work on the water cycle.");
   });
 
-  it("falls back to local scoring when the reply cannot be parsed at all", async () => {
+  it("falls back to the core score when the reply cannot be parsed at all", async () => {
     mockRuntime.chat.mockResolvedValue("not json");
     mockExtract.mockReturnValue("not json");
     mockRepair.mockImplementation(() => {
@@ -395,7 +441,7 @@ describe("evaluateQuiz — AI evaluation", () => {
     expect(result.feedback).toMatch(/You scored 1 out of 1/);
   });
 
-  it("falls back to local scoring when the chat call rejects", async () => {
+  it("falls back to the core score when the chat call rejects", async () => {
     mockRuntime.chat.mockRejectedValue(new Error("connection reset"));
 
     const result = await evaluateQuiz(submission());
@@ -405,7 +451,7 @@ describe("evaluateQuiz — AI evaluation", () => {
   });
 });
 
-describe("evaluateQuiz — local scoring", () => {
+describe("evaluateQuiz — core score with local explanations", () => {
   /**
    * Force the local path so the rating thresholds can be exercised directly.
    *
@@ -506,5 +552,42 @@ describe("evaluateQuiz — request validation", () => {
 
     const prompt = mockRuntime.chat.mock.calls[0]![0][1].content as string;
     expect(prompt).toContain("intermediate");
+  });
+});
+
+describe("evaluateQuiz — core authority", () => {
+  it("takes the score from the core, not from the client's answer map", async () => {
+    // The client says the answer was right; the core says it was wrong. The
+    // core wins, because it holds the sealed key.
+    const body = submission();
+    nextScore = scoreFrom([q()], { 0: 1 });
+
+    const result = await evaluateQuiz(body);
+
+    expect(result.overallScore).toBe(0);
+    expect(result.correctAnswers).toBe(0);
+    expect(result.perQuestion[0]!.isCorrect).toBe(false);
+    expect(result.perQuestion[0]!.userAnswer).toBe(1);
+  });
+
+  it("rejects when the core is unreachable instead of scoring locally", async () => {
+    mockGetScore.mockRejectedValueOnce(new Error("core down"));
+
+    await expect(evaluateQuiz(submission())).rejects.toThrow("core down");
+  });
+
+  it("accepts questions without correctIndex", async () => {
+    // The request no longer carries an answer key: the core already has it.
+    nextScore = scoreFrom([q({ question: "Q", options: ["a", "b"] })], { 0: 0 });
+
+    const body = {
+      quizId: "quiz-1",
+      questions: [{ question: "Q", options: ["a", "b"], explanation: "e" }],
+      answers: { 0: 0 },
+      difficulty: "intermediate",
+      lessonTitle: "T",
+    };
+
+    await expect(evaluateQuiz(body)).resolves.toMatchObject({ overallScore: 100 });
   });
 });

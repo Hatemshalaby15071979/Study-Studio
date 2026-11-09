@@ -17,10 +17,10 @@ export const generateLessonSchema = z.object({
 });
 
 export const evaluateQuizSchema = z.object({
+  quizId: z.string().min(1),
   questions: z.array(z.object({
     question: z.string().min(1),
     options: z.array(z.string().min(1)).min(2, 'At least 2 options required'),
-    correctIndex: z.number().int().min(0),
     explanation: z.string().min(1)
   })).min(1, 'At least one question required'),
   answers: z.record(z.number().int().min(0)),
