@@ -4,10 +4,16 @@
 // client. The UI registers a quiz once, receives public items (no answer
 // key, no explanation), and asks the core to score each committed answer.
 //
-// The core is a separate local process: `helix-core --port 8765`. Point
-// the app at it with NEXT_PUBLIC_HELIX_CORE_URL; when the service is not
-// running the quiz reports that explicitly instead of silently falling
-// back to client-side scoring.
+// Inside the desktop shell the core is a sidecar: Rust spawns it on a free
+// port, reads the handshake, and proxies these calls through `core_fetch`
+// (see src-tauri/src/core.rs). The token never enters this context.
+//
+// In a plain browser (`next dev` outside Tauri) there is no sidecar, so the
+// client falls back to HTTP against NEXT_PUBLIC_HELIX_CORE_URL — normally
+// `helix-core --port 8765` started by hand. When the service is not running
+// the quiz reports that explicitly instead of silently scoring locally.
+
+import { isTauri, invokeTauri } from "./tauri";
 
 export interface CoreQuizItemInput {
   question: string;
@@ -67,7 +73,13 @@ export class CoreUnavailableError extends Error {
 const DEFAULT_URL = "http://127.0.0.1:8765";
 const REQUEST_TIMEOUT_MS = 10_000;
 
-/** Base URL of the Helix Core service. */
+/**
+ * Rust prefixes "the service is not there" errors with this, so they can be
+ * distinguished from "the service answered with an error".
+ */
+const UNAVAILABLE_PREFIX = "core-unavailable:";
+
+/** Base URL of the Helix Core service, for the browser fallback. */
 export function coreBaseUrl(): string {
   const configured = process.env["NEXT_PUBLIC_HELIX_CORE_URL"];
   return ((configured && configured.trim()) || DEFAULT_URL).replace(/\/+$/, "");
@@ -78,7 +90,31 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function fromTauriError(error: unknown): Error {
+  const message =
+    typeof error === "string" ? error : error instanceof Error ? error.message : String(error);
+  if (message.startsWith(UNAVAILABLE_PREFIX)) {
+    return new CoreUnavailableError(message.slice(UNAVAILABLE_PREFIX.length).trim());
+  }
+  return new Error(message);
+}
+
+/** One call through the sidecar, proxied by Rust so no CSP or token applies. */
+async function requestViaSidecar<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const body = typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined;
+  try {
+    return await invokeTauri<T>("core_fetch", { path, method, body });
+  } catch (error) {
+    throw fromTauriError(error);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (isTauri()) {
+    return requestViaSidecar<T>(path, init);
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;

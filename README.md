@@ -95,19 +95,49 @@ and technically independent.
 
 ### Quiz scoring service
 
-Quiz scoring requires the local Helix Core service (`helix_core` in the
-Helix-Education repository):
+Quiz scoring is owned by the local Helix Core service (`helix-core`, in the
+Helix-Education repository). There are two ways it reaches the app.
+
+**Desktop app — automatic.** The Tauri shell spawns the core as a sidecar on
+a free port, reads one line of stdout (`{"event":"ready","port":…,"token":…}`),
+and proxies every call through the Rust command `core_fetch`. The port never
+has to be known in advance and the bearer token never enters the webview.
+Nothing needs to be started by hand.
+
+The sidecar binary is built from the `helix-core` distribution and staged as
+`src-tauri/binaries/helix-core-<target-triple>`:
 
 ```bash
-pip install -e ".[dev]"     # from Helix-Education
-helix-core --port 8765      # loopback only; add HELIX_CORE_TOKEN for auth
+npm run sidecar:build          # skips when the binary is current
+npm run sidecar:build:force    # always rebuild
 ```
 
-Point the app at it with `NEXT_PUBLIC_HELIX_CORE_URL` (default
-`http://127.0.0.1:8765`) and, when configured, `NEXT_PUBLIC_HELIX_CORE_TOKEN`.
-If the service is not running the quiz says so explicitly; it does not fall
-back to client-side scoring. The answer key lives in the core's `sealed_keys`
-table and is HMAC-verified before every score.
+It needs `pyinstaller` on the Python you build with, and the core's source.
+By default the script looks for `../Helix-Education/packages/helix-core`
+next to this repository; override with `HELIX_CORE_SRC` and `PYTHON`:
+
+```bash
+HELIX_CORE_SRC=/path/to/Helix-Education/packages/helix-core \
+PYTHON=/path/to/python node scripts/build-sidecar.mjs --force
+```
+
+`npm run tauri:dev` and `npm run tauri:build` run this automatically via the
+Tauri `beforeDevCommand` / `beforeBuildCommand` hooks.
+
+**Browser (`next dev` outside Tauri) — manual.** There is no sidecar to spawn,
+so start the service yourself and point the app at it:
+
+```bash
+pip install helix-core          # or: pip install -e Helix-Education/packages/helix-core
+helix-core --port 8765          # loopback only; add HELIX_CORE_TOKEN for auth
+```
+
+`NEXT_PUBLIC_HELIX_CORE_URL` (default `http://127.0.0.1:8765`) and, when
+configured, `NEXT_PUBLIC_HELIX_CORE_TOKEN` apply to this path only.
+
+In both cases, if the service is unavailable the quiz says so explicitly; it
+does not fall back to client-side scoring. The answer key lives in the core's
+`sealed_keys` table and is HMAC-verified before every score.
 
 ## Production status & test coverage
 

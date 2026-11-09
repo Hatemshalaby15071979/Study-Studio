@@ -6,6 +6,10 @@ import {
   submitAnswer,
 } from '@/lib/coreClient';
 
+jest.mock('@tauri-apps/api/core', () => ({ invoke: jest.fn() }));
+
+import { invoke } from '@tauri-apps/api/core';
+
 const fetchMock = jest.fn();
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
@@ -110,5 +114,82 @@ describe('coreClient', () => {
     fetchMock.mockResolvedValue(jsonResponse({ detail: 'sealed key failed verification' }, false, 409));
 
     await expect(getScore('q1')).rejects.toThrow('sealed key failed verification');
+  });
+});
+
+describe('coreClient inside the desktop shell', () => {
+  const invokeMock = invoke as jest.MockedFunction<typeof invoke>;
+
+  function enterTauri() {
+    (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'] = {};
+  }
+
+  function leaveTauri() {
+    delete (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'];
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    enterTauri();
+  });
+
+  afterEach(() => {
+    leaveTauri();
+  });
+
+  it('proxies the call through core_fetch instead of fetching', async () => {
+    invokeMock.mockResolvedValue({
+      quiz_id: 'q1',
+      total: 2,
+      answered: 1,
+      correct: 1,
+      percentage: 50,
+      items: [],
+    });
+
+    const score = await getScore('q1');
+
+    expect(score.percentage).toBe(50);
+    expect(invokeMock).toHaveBeenCalledWith('core_fetch', {
+      path: '/v1/quizzes/q1/score',
+      method: 'GET',
+      body: undefined,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sends the request body as an object, not a JSON string', async () => {
+    invokeMock.mockResolvedValue({ quiz_id: 'q1', topic: 't', title: null, items: [] });
+
+    await registerQuiz({
+      topic: 't',
+      items: [{ question: 'Q', options: ['a', 'b'], correctIndex: 1, explanation: 'why' }],
+    });
+
+    const [, args] = invokeMock.mock.calls[0] as [string, Record<string, unknown>];
+    expect(args['path']).toBe('/v1/quizzes');
+    expect(args['method']).toBe('POST');
+    expect(args['body']).toEqual({
+      topic: 't',
+      title: null,
+      items: [{ question: 'Q', options: ['a', 'b'], correct_index: 1, explanation: 'why' }],
+    });
+  });
+
+  it('reports a missing sidecar as CoreUnavailableError', async () => {
+    invokeMock.mockRejectedValue('core-unavailable: the bundled helix-core sidecar is missing: not found');
+
+    await expect(getScore('q1')).rejects.toBeInstanceOf(CoreUnavailableError);
+    await expect(getScore('q1')).rejects.toThrow(/sidecar is missing/);
+  });
+
+  it('keeps a core-side error as a plain Error', async () => {
+    invokeMock.mockRejectedValue('sealed key failed verification');
+
+    const error = await getScore('q1').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(CoreUnavailableError);
+    expect((error as Error).message).toBe('sealed key failed verification');
   });
 });

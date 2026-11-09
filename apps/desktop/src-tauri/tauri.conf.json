@@ -4,8 +4,8 @@
   "build": {
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "npm run dev:warm",
-    "beforeBuildCommand": "npm run build:prod"
+    "beforeDevCommand": "npm run sidecar:build && npm run dev:warm",
+    "beforeBuildCommand": "npm run sidecar:build && npm run build:prod"
   },
   "app": {
     "windows": [
@@ -24,13 +24,21 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src http://localhost:11434 http://localhost:1234 http://localhost:8080 http://localhost:3980 http://localhost:8000 http://localhost:4000 http://localhost:21002 http://localhost:8765 http://127.0.0.1:11434 http://127.0.0.1:1234 http://127.0.0.1:8080 http://127.0.0.1:3980 http://127.0.0.1:8000 http://127.0.0.1:4000 http://127.0.0.1:21002 http://127.0.0.1:8765 https://tauri.localhost ipc: http://ipc.localhost tauri://localhost; img-src 'self' asset: https://asset.localhost; font-src 'self' asset: https://asset.localhost; media-src 'self' asset: https://asset.localhost blob:; worker-src 'self' blob:; child-src blob:; blob-src blob:",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**"]
+        "scope": [
+          "$APPDATA/**"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
+    "externalBin": [
+      "binaries/helix-core"
+    ],
     "icon": [
       "icons/icon.ico",
       "icons/32x32.png",

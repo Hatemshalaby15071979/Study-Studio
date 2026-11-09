@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use tauri::{Manager, State};
 use std::process::Command;
 
+mod core;
 mod tts;
 
 const OLLAMA_URL: &str = "http://localhost:11434";
@@ -939,6 +940,14 @@ pub fn run() {
             model_name: Mutex::new(None),
             ollama_process: Mutex::new(None),
         })
+        // The core is spawned, not assumed: it picks a free port, prints a
+        // handshake, and is killed on exit. A failure here is recorded in
+        // CoreHandle and surfaced as "scoring unavailable", never as a crash.
+        .setup(|app| {
+            app.manage(core::CoreHandle::default());
+            core::start(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             check_health,
             list_models,
@@ -960,9 +969,19 @@ pub fn run() {
             discover_tts_voices,
             list_tts_languages,
             voice_studio_status,
+            core::core_status,
+            core::core_fetch,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Kill the sidecar on every exit path, including a window close.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<core::CoreHandle>() {
+                    state.shutdown();
+                }
+            }
+        });
 }
 
 #[cfg(test)]
