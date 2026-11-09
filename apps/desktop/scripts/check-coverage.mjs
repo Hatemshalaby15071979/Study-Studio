@@ -45,7 +45,13 @@ const SUMMARY = join(ROOT, "coverage", "coverage-summary.json");
  * hide behind a well-covered parent.
  *
  * Measured when written: src/lib 64.46/51.04/56.61/65.05,
- * src/components 42.45/32.33/33.77/43.00.
+ * src/components 42.45/32.33/33.77/43.00. Raised src/lib as the directory
+ * improved: 80/70/73/81 -> 84/74/80/86 after the shared `ollama.ts` transport
+ * module (getRecommendedModel, listResidentModelsStrict, unloadModel, the
+ * invalid-payload branch of listModels) gained unit tests; measured
+ * 87.09/76.16/83.61/88.93. The remaining dark lines in src/lib are the
+ * Tauri-only branches of ollama.ts (isTauri()===true paths), which are
+ * unreachable in jsdom by design.
  *
  * src/hooks sat at a deliberate { 0, 0, 0, 0 } placeholder while it had no
  * tests at all — a floor of zero is not a floor. It now has one: plan item 2.4
@@ -61,7 +67,7 @@ const FLOORS = {
   // (ai-runtime/runtime.ts). Measured 83.95/73.29/76.71/85.20. Every AI-runtime
   // file now has a floor of its own; what remains untested is integration, not
   // unit coverage — see the remaining-gaps list in QA-WORKFLOW.md.
-  "src/lib": { statements: 80, branches: 70, functions: 73, lines: 81 },
+  "src/lib": { statements: 84, branches: 74, functions: 80, lines: 86 },
   // Raised from 40/30/31/40 after AudioFileDownload.tsx got a suite: the
   // directory went 65.86/42.58/52.83/66.80 -> 79.20/68.10/69.81/81.25. Leaving
   // the old floor would have let that component regress back to 0% unnoticed,

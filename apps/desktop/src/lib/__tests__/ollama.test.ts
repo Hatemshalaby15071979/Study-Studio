@@ -9,9 +9,12 @@ import {
   chat,
   generate,
   ensureModel,
+  getRecommendedModel,
   listModels,
   listResidentModels,
+  listResidentModelsStrict,
   releaseOtherModels,
+  unloadModel,
   extractJsonFromResponse,
   repairJson,
 } from "@/lib/ollama";
@@ -557,5 +560,103 @@ describe("listResidentModels / releaseOtherModels", () => {
     global.fetch = mock as unknown as typeof fetch;
 
     await expect(releaseOtherModels("gemma3:12b")).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listModels – non-array payload is treated as "no models", not a crash
+// ---------------------------------------------------------------------------
+describe("listModels invalid payload", () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it("returns an empty list when the tags payload is not an array of models", async () => {
+    mockFetchJson({ models: "not-an-array", somethingElse: true });
+    await expect(listModels(true)).resolves.toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ensureModel – no preference auto-selects the recommended model
+// ---------------------------------------------------------------------------
+describe("ensureModel auto-select", () => {
+  const models = {
+    models: [
+      { name: "gemma3:12b", model: "gemma3:12b", size: 5_000_000_000, details: { loaded: false } },
+      { name: "llama3.2:3b", model: "llama3.2:3b", size: 2_000_000_000, details: { loaded: false } },
+    ],
+  };
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    mockFetchJson(models);
+    return listModels(true);
+  });
+
+  it("auto-selects the recommended model when none is preferred", async () => {
+    await expect(ensureModel()).resolves.toBe("gemma3:12b");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRecommendedModel – priority ordering + fallback (pure; takes models)
+// ---------------------------------------------------------------------------
+describe("getRecommendedModel", () => {
+  const mk = (names: string[]) =>
+    names.map((n) => ({ id: n, name: n, size: "1.0 GB", loaded: false }));
+
+  it("returns the highest-priority match by the documented order", async () => {
+    const models = mk(["mistral:7b", "gemma3:12b", "llama3.2:3b"]);
+    await expect(getRecommendedModel(models)).resolves.toBe("gemma3:12b");
+  });
+
+  it("falls back to the first model when none match a priority pattern", async () => {
+    const models = mk(["deepseek:8b", "phi:3b"]);
+    await expect(getRecommendedModel(models)).resolves.toBe("deepseek:8b");
+  });
+
+  it("throws when no models are available", async () => {
+    await expect(getRecommendedModel([])).rejects.toThrow(/no ollama models/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listResidentModelsStrict – residency probe that fails on bad responses
+// ---------------------------------------------------------------------------
+describe("listResidentModelsStrict", () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it("maps resident models from /api/ps", async () => {
+    mockFetchJson({ models: [{ model: "gemma3:12b" }, { name: "llama3.2:3b" }, { name: "" }] });
+    await expect(listResidentModelsStrict()).resolves.toEqual(["gemma3:12b", "llama3.2:3b"]);
+    expect(lastRequest?.url).toContain("/api/ps");
+  });
+
+  it("throws when /api/ps returns a non-2xx status", async () => {
+    mockFetchStatus(503, "down");
+    await expect(listResidentModelsStrict()).rejects.toThrow(/residency check failed/i);
+  });
+
+  it("throws when /api/ps returns an invalid shape", async () => {
+    mockFetchJson({ notModels: true });
+    await expect(listResidentModelsStrict()).rejects.toThrow(/invalid residency/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// unloadModel – keep_alive:0 unload request, with an input guard
+// ---------------------------------------------------------------------------
+describe("unloadModel", () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it("throws when the model id is empty", async () => {
+    await expect(unloadModel("   ")).rejects.toThrow(/model id is required/i);
+  });
+
+  it("fires a keep_alive:0 generate request for a valid id", async () => {
+    mockFetchJson({ model: "m", response: "", done: true });
+    await unloadModel("m");
+    expect(lastRequest?.url).toContain("/api/generate");
+    expect(lastRequest!.body.keep_alive).toBe(0);
+    expect(lastRequest!.body.prompt).toBe("");
   });
 });
