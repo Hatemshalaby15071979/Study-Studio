@@ -1,8 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QuizQuestion, QuizEvaluation } from "@/types";
 import { evaluateQuiz } from "@/lib/api";
+import {
+  registerQuiz,
+  submitAnswer,
+  type CoreAnswerResult,
+} from "@/lib/coreClient";
 
 interface Props {
   questions: QuizQuestion[];
@@ -15,27 +20,93 @@ interface Props {
 export default function Quiz({ questions, difficulty, lessonTitle, model, onEvaluationComplete }: Props) {
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [submitted, setSubmitted] = useState<Record<number, boolean>>({});
+  const [results, setResults] = useState<Record<number, CoreAnswerResult>>({});
   const [animatingIndex, setAnimatingIndex] = useState<number | null>(null);
+  const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const [quizId, setQuizId] = useState<string | null>(null);
+  const [itemIds, setItemIds] = useState<string[]>([]);
+  const [coreError, setCoreError] = useState<string | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const [evaluation, setEvaluation] = useState<QuizEvaluation | null>(null);
   const [evalError, setEvalError] = useState<string | null>(null);
 
-  const handleAnswer = (qIndex: number, optionIndex: number) => {
-    if (submitted[qIndex]) return;
+  // Registration runs once per lesson. The ref keeps the effect from
+  // re-firing when the parent re-renders with a new array identity, and
+  // from registering twice under React StrictMode's double-invoked effect.
+  const questionsRef = useRef(questions);
+  questionsRef.current = questions;
+  const registrationRef = useRef<{ key: string; promise: ReturnType<typeof registerQuiz> } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const key = lessonTitle || "lesson";
+    setQuizId(null);
+    setItemIds([]);
+    setResults({});
+    setAnswers({});
+    setSubmitted({});
+    setCoreError(null);
+
+    if (!registrationRef.current || registrationRef.current.key !== key) {
+      registrationRef.current = {
+        key,
+        promise: registerQuiz({
+          topic: key,
+          title: lessonTitle,
+          items: questionsRef.current.map((q) => ({
+            question: q.question,
+            options: q.options,
+            correctIndex: q.correctIndex,
+            explanation: q.explanation,
+          })),
+        }),
+      };
+    }
+
+    registrationRef.current.promise
+      .then((quiz) => {
+        if (cancelled) return;
+        setQuizId(quiz.quiz_id);
+        setItemIds(quiz.items.map((item) => item.item_id));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setCoreError(error instanceof Error ? error.message : String(error));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lessonTitle]);
+
+  const handleAnswer = async (qIndex: number, optionIndex: number) => {
+    if (submitted[qIndex] || !quizId || !itemIds[qIndex] || coreError) return;
+
     setAnimatingIndex(qIndex);
-    const newAnswers = { ...answers, [qIndex]: optionIndex };
-    setAnswers(newAnswers);
-    setSubmitted({ ...submitted, [qIndex]: true });
-    setTimeout(() => setAnimatingIndex(null), 400);
+    setAnswers((prev) => ({ ...prev, [qIndex]: optionIndex }));
+    setSubmitted((prev) => ({ ...prev, [qIndex]: true }));
+    setPendingIndex(qIndex);
+
+    try {
+      const result = await submitAnswer(quizId, itemIds[qIndex], optionIndex);
+      setResults((prev) => ({ ...prev, [qIndex]: result }));
+    } catch (error) {
+      // The core refused or disappeared: undo the submission so the
+      // learner can retry once the service is back.
+      setCoreError(error instanceof Error ? error.message : String(error));
+      setSubmitted((prev) => ({ ...prev, [qIndex]: false }));
+      setAnswers((prev) => {
+        const next = { ...prev };
+        delete next[qIndex];
+        return next;
+      });
+    } finally {
+      setPendingIndex(null);
+      setTimeout(() => setAnimatingIndex(null), 400);
+    }
   };
 
-  const calculateScore = () => {
-    let score = 0;
-    questions.forEach((q, i) => {
-      if (answers[i] === q.correctIndex) score++;
-    });
-    return score;
-  };
+  const calculateScore = () => Object.values(results).filter((result) => result.correct).length;
 
   const handleEvaluateAll = async () => {
     if (!allAnswered) return;
@@ -62,14 +133,16 @@ export default function Quiz({ questions, difficulty, lessonTitle, model, onEval
   const handleRetry = () => {
     setAnswers({});
     setSubmitted({});
+    setResults({});
     setEvaluation(null);
     setEvalError(null);
   };
 
   const score = calculateScore();
   const total = questions.length;
-  const allAnswered = questions.every((_, i) => submitted[i]);
+  const allAnswered = total > 0 && questions.every((_, i) => results[i] !== undefined);
   const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
+  const scoringUnavailable = Boolean(coreError);
 
   return (
     <div className="card mb-6 animate-scale-in" id="quiz">
@@ -89,6 +162,16 @@ export default function Quiz({ questions, difficulty, lessonTitle, model, onEval
           )}
         </div>
       </div>
+
+      {scoringUnavailable && (
+        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800/40 dark:bg-red-900/10 dark:text-red-300" role="alert">
+          ⚠️ {coreError}
+        </div>
+      )}
+
+      {!quizId && !scoringUnavailable && (
+        <p className="mb-5 text-sm text-muted">Connecting to the scoring service…</p>
+      )}
 
       {allAnswered && !evaluation && (
         <div className="p-5 rounded-xl mb-5 text-center bg-gradient-to-br from-primary-soft to-transparent dark:from-primary-soft/30 border border-primary/10 animate-scale-in">
@@ -152,8 +235,11 @@ export default function Quiz({ questions, difficulty, lessonTitle, model, onEval
         {questions.map((q, qIndex) => {
           const globalIndex = qIndex;
           const selected = answers[globalIndex];
+          const result = results[globalIndex];
           const isSubmitted = submitted[globalIndex];
-          const isCorrect = selected === q.correctIndex;
+          const isPending = pendingIndex === globalIndex;
+          const isCorrect = result?.correct === true;
+          const correctIndex = result?.correct_index;
           const isAnimating = animatingIndex === globalIndex;
 
           const evalQuestion = evaluation?.perQuestion?.find((eq) => eq.questionIndex === globalIndex);
@@ -177,14 +263,16 @@ export default function Quiz({ questions, difficulty, lessonTitle, model, onEval
                 {q.options.map((opt, oIndex) => {
                   let optionClass = "w-full text-left p-3 rounded-xl border transition-all duration-200 text-sm flex items-center gap-3 ";
 
-                  if (isSubmitted) {
-                    if (oIndex === q.correctIndex) {
+                  if (result) {
+                    if (oIndex === correctIndex) {
                       optionClass += "border-accent-green bg-green-50 dark:bg-green-900/20 text-accent-green font-medium";
                     } else if (oIndex === selected && !isCorrect) {
                       optionClass += "border-accent-red bg-red-50 dark:bg-red-900/20 text-accent-red";
                     } else {
                       optionClass += "border-card-border opacity-50";
                     }
+                  } else if (isPending) {
+                    optionClass += "border-card-border opacity-50";
                   } else {
                     optionClass += "border-card-border hover:border-primary hover:bg-primary-soft/50 cursor-pointer";
                   }
@@ -193,30 +281,33 @@ export default function Quiz({ questions, difficulty, lessonTitle, model, onEval
                     <button
                       key={oIndex}
                       onClick={() => handleAnswer(globalIndex, oIndex)}
-                      disabled={isSubmitted}
+                      disabled={isSubmitted || !quizId || scoringUnavailable}
                       className={optionClass}
                     >
                       <span className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
-                        isSubmitted && oIndex === q.correctIndex
+                        result && oIndex === correctIndex
                           ? "bg-green-500 text-white"
-                          : isSubmitted && oIndex === selected && !isCorrect
+                          : result && oIndex === selected && !isCorrect
                           ? "bg-red-500 text-white"
                           : "bg-sidebar text-muted"
                       }`}>
-                        {isSubmitted && oIndex === q.correctIndex ? "✓" : isSubmitted && oIndex === selected && !isCorrect ? "✗" : String.fromCharCode(65 + oIndex)}
+                        {result && oIndex === correctIndex ? "✓" : result && oIndex === selected && !isCorrect ? "✗" : String.fromCharCode(65 + oIndex)}
                       </span>
                       <span className="flex-1">{opt}</span>
                     </button>
                   );
                 })}
               </div>
-              {isSubmitted && (
+              {isPending && (
+                <div className="mt-2 ml-8 text-xs text-muted animate-fade-in">Checking answer…</div>
+              )}
+              {result && (
                 <div className={`mt-2 ml-8 text-xs p-2.5 rounded-lg ${
                   isCorrect
                     ? "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800/20"
                     : "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/20"
                 } animate-fade-in`}>
-                  {isCorrect ? "✅ Correct!" : `❌ ${q.explanation}`}
+                  {isCorrect ? "✅ Correct!" : `❌ ${result.explanation || q.explanation}`}
                 </div>
               )}
               {evalQuestion && (

@@ -42,8 +42,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const toggle = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
-  if (!mounted) return <>{children}</>;
-
+  // Always render the provider. The previous `if (!mounted) return
+  // <>{children}</>` swapped the tree from a fragment to a provider on the
+  // first effect, which unmounted and remounted every child — quiz
+  // registration and any other mount effect ran twice, and the first
+  // registration was orphaned. The provider renders no DOM, so gating it
+  // buys nothing; `mounted` still guards the class/localStorage effect.
   return (
     <ThemeContext.Provider value={{ theme, toggle }}>
       {children}

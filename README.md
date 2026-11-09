@@ -63,7 +63,7 @@ featured lesson, which the Library imports on first launch. No fixtures and no s
 | --- | --- |
 | Structured lessons (sections, glossary, quiz) | Working |
 | Dual-host podcast scripts (English / Arabic) | Working |
-| Quiz with local scoring and optional AI evaluation | Working |
+| Quiz scoring via Helix Core (sealed answer keys), optional AI evaluation | Working — requires `helix-core` |
 | Piper TTS → MP3/WAV export | Working when voice models **and** ffmpeg are installed |
 | Multi-provider runtime (LM Studio, Ollama, OpenAI-compatible, optional OpenAI / OpenRouter) | Working |
 | On-demand model load from the app (no preloading in LM Studio) | Working |
@@ -88,7 +88,26 @@ and technically independent.
   frontend is not a separate package.
 - `apps/desktop/src/lib/ai-runtime/` — provider contract, capability detection, model
   selection (the runtime the coverage gate measures).
+- `apps/desktop/src/lib/coreClient.ts` — the Helix Core client. Quiz scoring is owned
+  by the core, not the client: the UI registers a quiz, receives public items with no
+  answer key, and submits each answer for scoring.
 - Library — IndexedDB with a localStorage migration path.
+
+### Quiz scoring service
+
+Quiz scoring requires the local Helix Core service (`helix_core` in the
+Helix-Education repository):
+
+```bash
+pip install -e ".[dev]"     # from Helix-Education
+helix-core --port 8765      # loopback only; add HELIX_CORE_TOKEN for auth
+```
+
+Point the app at it with `NEXT_PUBLIC_HELIX_CORE_URL` (default
+`http://127.0.0.1:8765`) and, when configured, `NEXT_PUBLIC_HELIX_CORE_TOKEN`.
+If the service is not running the quiz says so explicitly; it does not fall
+back to client-side scoring. The answer key lives in the core's `sealed_keys`
+table and is HMAC-verified before every score.
 
 ## Production status & test coverage
 
