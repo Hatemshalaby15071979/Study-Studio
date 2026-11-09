@@ -1,6 +1,7 @@
 /**
  * End-to-end integration test: generate an ARABIC LONG-length podcast about
- * the INTJ personality type using the session-pinned model (qwen3:8b), then
+ * the INTJ personality type using the session-pinned model (qwen3:8b by
+ * default), then
  * synthesize a real MP3 file on disk via Piper TTS + ffmpeg.
  *
  * This test is GATED: it only runs when E2E_PODCAST=1. It is intentionally
@@ -8,6 +9,8 @@
  * Ollama server and takes several minutes. Run with:
  *
  *   $env:E2E_PODCAST="1"; npx jest e2e-podcast-intj
+ *   $env:E2E_PODCAST_MODEL="qwen3.5:9b" # optional installed model override
+ *   $env:E2E_PODCAST_TIMEOUT_MS="3600000" # optional CPU-only timeout override
  *
  * On success it asserts the MP3 exists and prints its absolute path, which is
  * the file the user asked to be produced.
@@ -20,6 +23,12 @@ import { spawnSync } from "child_process";
 import { generatePodcastOnly } from "@/lib/generation";
 
 const RUN = process.env["E2E_PODCAST"] === "1";
+const MODEL = process.env["E2E_PODCAST_MODEL"] || "qwen3:8b";
+const configuredTimeout = Number(process.env["E2E_PODCAST_TIMEOUT_MS"]);
+const TEST_TIMEOUT_MS =
+  Number.isFinite(configuredTimeout) && configuredTimeout > 0
+    ? configuredTimeout
+    : 1_200_000;
 
 /**
  * The jsdom jest environment has no `fetch`. Provide a minimal real HTTP
@@ -112,7 +121,7 @@ function ffmpegConcatToMp3(segments: string[]): void {
 }
 
 describe("E2E: Arabic LONG podcast about INTJ -> saved MP3", () => {
-  jest.setTimeout(1_200_000);
+  jest.setTimeout(TEST_TIMEOUT_MS);
 
   if (!RUN) {
     // Assert the gate itself rather than calling `test.skip`. A skipped test
@@ -126,7 +135,7 @@ describe("E2E: Arabic LONG podcast about INTJ -> saved MP3", () => {
     return;
   }
 
-  test("generates the script with qwen3:8b and saves an MP3", async () => {
+  test(`generates the script with ${MODEL} and saves an MP3`, async () => {
     // Prereqs must be in place (voice model downloaded, tools on PATH).
     expect(fs.existsSync(KAREEM) && fs.existsSync(KAREEM_JSON)).toBe(true);
     const piperOk = spawnSync("piper", ["-h"], { encoding: "utf8" }).status !== null;
@@ -139,7 +148,7 @@ describe("E2E: Arabic LONG podcast about INTJ -> saved MP3", () => {
       language: "ar",
       length: "long",
       difficulty: "intermediate",
-      model: "qwen3:8b",
+      model: MODEL,
       voiceGenderA: "male",
       voiceGenderB: "female",
     });
