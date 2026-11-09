@@ -5,9 +5,9 @@
 
 <!-- badges:start -->
 
-[![CI](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/workflows/CI/badge.svg)](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions)
+[![CI](https://github.com/Hatemshalaby15071979/Study-Studio/actions/workflows/CI/badge.svg)](https://github.com/Hatemshalaby15071979/Study-Studio/actions)
 ![licence](https://img.shields.io/badge/licence-MIT-blue)
-[![last commit](https://img.shields.io/github/last-commit/<YOUR_GITHUB_ORG>/Study-Studio)](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/commits/main)
+[![last commit](https://img.shields.io/github/last-commit/Hatemshalaby15071979/Study-Studio)](https://github.com/Hatemshalaby15071979/Study-Studio/commits/main)
 ![status](https://img.shields.io/badge/ci-success-brightgreen?label=success%20(2026-10-05))
 
 *Measured 2026-10-06 — CI **success**; head `eb53cbd` (2026-10-05); TypeScript.*
@@ -19,7 +19,7 @@
 
 **A private, local-first AI tutor that runs on your machine.**
 
-[![CI](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/workflows/ci.yml)
+[![CI](https://github.com/Hatemshalaby15071979/Study-Studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Hatemshalaby15071979/Study-Studio/actions/workflows/ci.yml)
 ![Licence](https://img.shields.io/badge/licence-MIT-blue)
 ![TypeScript](https://img.shields.io/badge/typescript-app-3178c6)
 
@@ -112,29 +112,29 @@ table and is HMAC-verified before every score.
 ## Production status & test coverage
 
 Snapshot 2026-10-02. The latest CI run on `main` is
-[`36960778059`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36960778059),
+[`36960778059`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36960778059),
 head `8b46d645731d41d762b0ba40c09cb7eb8dec1056` — a docs-only commit, so the measured
 results below are unchanged from the preceding code run
-[`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646),
+[`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646),
 head `88ade450689cd377ec9d90d358787bff269d070b`; that run's job logs are the source for
 the test counts, coverage, and workflow results in the table below:
 
 | Check | Result | Source |
 | --- | --- | --- |
-| Test suites | 47 passed / 47 total | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Tests | 986 passed / 986 total | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Coverage (statements / branches) | 85.66% / 75.13% | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Typecheck (`tsc --noEmit`) | Clean | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Lint (`eslint src --max-warnings 0`) | Clean | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Version manifests | Clean — 4 manifests agree at 0.2.0 | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Design-token guard | Clean — 20 token utilities, 1 stylesheet | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Static export (`next build --webpack`) | Clean — 7 routes, all prerendered | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Coverage floors (`check:coverage`) | Met — `src/lib/ai-runtime/runtime.ts` at 100% lines | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Mutation testing (28 targeted mutations) | 28/28 caught | CI run [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Test suites | 47 passed / 47 total | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Tests | 986 passed / 986 total | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Coverage (statements / branches) | 85.66% / 75.13% | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Typecheck (`tsc --noEmit`) | Clean | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Lint (`eslint src --max-warnings 0`) | Clean | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Version manifests | Clean — 4 manifests agree at 0.2.0 | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Design-token guard | Clean — 20 token utilities, 1 stylesheet | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Static export (`next build --webpack`) | Clean — 7 routes, all prerendered | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Coverage floors (`check:coverage`) | Met — `src/lib/ai-runtime/runtime.ts` at 100% lines | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Mutation testing (28 targeted mutations) | 28/28 caught | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
 
 > [!IMPORTANT]
 > **CI is green on `main`.** The latest run is
-> [`36803605646`](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/actions/runs/36803605646)
+> [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646)
 > (2026-10-01, head `88ade450689cd377ec9d90d358787bff269d070b`, branch `main`, event `push`); all four jobs passed:
 > `typecheck, lint, versions`; `tests and coverage floors`; `static export and design tokens`;
 > and `mutation testing`. The first fully green run on `main` was `36803350157`.
@@ -201,12 +201,12 @@ Piper voice models **and** ffmpeg.
 
 ## Related work
 
-See the [profile README](https://github.com/<YOUR_GITHUB_ORG>) for how this project
+See the [profile README](https://github.com/Hatemshalaby15071979) for how this project
 fits the wider work.
 
 ## Author
 
-Built by Hatem Shalaby, Contact Centre Operations & AI Implementation Lead | WFM & CX Transformation. Background: https://github.com/<YOUR_GITHUB_ORG>
+Built by Hatem Shalaby, Contact Centre Operations & AI Implementation Lead | WFM & CX Transformation. Background: https://github.com/Hatemshalaby15071979
 
 ## Licence
 

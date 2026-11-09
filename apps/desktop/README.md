@@ -70,7 +70,7 @@ If the server is not running, the app tells you which runtime it looked for inst
 
 ### 1. Install from Release
 
-**No installer is currently published.** The releases page carries no binary assets, and earlier links pointed at a superseded account that returned 404. Build from source with the steps below, or watch the [releases page](https://github.com/<YOUR_GITHUB_ORG>/Study-Studio/releases).
+**No installer is currently published.** The releases page carries no binary assets, and earlier links pointed at a superseded account that returned 404. Build from source with the steps below, or watch the [releases page](https://github.com/Hatemshalaby15071979/Study-Studio/releases).
 
 ### 2. Build from Source
 
