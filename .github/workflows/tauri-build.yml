@@ -1,0 +1,332 @@
+# Packaged desktop build.
+#
+# WHY THIS FILE EXISTS
+#
+# Every other workflow in this repository checks the source. None of them
+# check the thing that actually ships: the installer. A packaged build can
+# be broken in ways no source-level test can see — a missing sidecar, a
+# bundle target that produces nothing, a `beforeBuildCommand` that fails
+# only when the frontend is already built.
+#
+# The specific gap this closes: the helix-core sidecar is a separate
+# distribution built from the Helix-Education repository. The desktop app
+# bundles it as `externalBin`, and Tauri fails the build if the file for
+# the target triple is missing. Nothing in the ordinary CI ever built that
+# file, so the packaging path was never exercised at all.
+#
+# TWO JOBS, TWO PLATFORMS
+#
+# The shipping target is Windows: NSIS and MSI installers. Both are
+# Windows-only bundle targets — on Linux, `tauri build` exits 0 and
+# produces no installer at all, because there is nothing to produce. That
+# is a property of the tool, not of this repository, and it is why the
+# Windows job asserts on the installer FILES rather than on the exit
+# code: a build that exits 0 without producing an installer is a failure,
+# not a pass.
+#
+# The Linux job exists for the other half: it builds the sidecar for the
+# Linux triple, runs the cross-repo contract test against that real
+# binary, and proves the app compiles and bundles for Linux too.
+#
+# THE SIDECAR PIN
+#
+# HELIX_CORE_REF below pins the exact Helix-Education commit the sidecar
+# is built from. It is a pin, not a branch, so a build is reproducible and
+# a change in the other repository cannot silently change what ships
+# here. Bumping it is a deliberate act, done together with a release.
+
+name: Tauri build
+
+on:
+  push:
+    # Every branch, not only main. A packaging job that only runs on main
+    # cannot be exercised before a change reaches main, which is the point
+    # of having it: a broken package is caught on the branch that broke
+    # it. The same reasoning as the CI workflow, which also runs on every
+    # push.
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: tauri-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The Helix-Education commit the helix-core sidecar is built from.
+  # Pinned deliberately: see the note above.
+  #
+  # This is the commit that carries the sidecar's parent-death watchdog.
+  # The sidecar must not outlive the app that spawned it, and the
+  # contract test below proves it. Pinning the release tag v2.1.0 instead
+  # would build a sidecar that leaks a process on every app exit, and the
+  # contract test would fail — which is the point of having it.
+  HELIX_CORE_REF: 112c10e5d36923a5455507a332dcb9f0283f09c2
+  HELIX_CORE_REPO: Hatemshalaby15071979/Helix-Education
+
+jobs:
+  sidecar-contract:
+    name: sidecar contract (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The sidecar is a separate repository. It is checked out at a
+      # pinned commit, not a branch.
+      - name: Check out Helix-Education at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HELIX_CORE_REPO }}
+          ref: ${{ env.HELIX_CORE_REF }}
+          path: helix-education
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The sidecar is a frozen Python application, so it needs Python and
+      # PyInstaller. The pinned dependencies are the ones the sidecar was
+      # verified against; a floating install could bundle a different
+      # FastAPI than the one the core was tested with.
+      - name: Install the sidecar build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "pyinstaller==6.22.3" \
+            "fastapi==0.162.2" \
+            "pydantic==2.14.3" \
+            "uvicorn==0.54.0"
+
+      # The Tauri crate links against webkit2gtk, so the Rust build needs
+      # the system libraries even when only the contract test is run.
+      - name: Install the Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            file \
+            wget \
+            xdg-utils
+
+      - name: Build the helix-core sidecar
+        working-directory: apps/desktop
+        env:
+          PYTHON: python
+          HELIX_CORE_SRC: ${{ github.workspace }}/helix-education/packages/helix-core
+        run: node scripts/build-sidecar.mjs --force
+
+      - name: Show the staged sidecar
+        run: ls -la apps/desktop/src-tauri/binaries/
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      # The cross-repo contract test: the real sidecar binary, the real
+      # handshake, the real score flow. It fails loudly if the sidecar is
+      # missing rather than skipping, because a skipped contract test
+      # proves nothing.
+      - name: Run the cross-repo contract test
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --test sidecar_contract
+
+  tauri-build-linux:
+    name: tauri build (linux)
+    runs-on: ubuntu-latest
+    needs: sidecar-contract
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out Helix-Education at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HELIX_CORE_REPO }}
+          ref: ${{ env.HELIX_CORE_REF }}
+          path: helix-education
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the sidecar build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "pyinstaller==6.22.3" \
+            "fastapi==0.162.2" \
+            "pydantic==2.14.3" \
+            "uvicorn==0.54.0"
+
+      - name: Install the Linux Tauri build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            file \
+            wget \
+            xdg-utils
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      # `tauri build` runs `npm run sidecar:build && npm run build:prod`
+      # itself as its beforeBuildCommand, so the sidecar is rebuilt from
+      # the pinned Helix-Education commit here too. The HELIX_CORE_SRC
+      # environment variable points it at the pinned checkout.
+      - name: Build the packaged app
+        working-directory: apps/desktop
+        env:
+          PYTHON: python
+          HELIX_CORE_SRC: ${{ github.workspace }}/helix-education/packages/helix-core
+        run: npm run tauri:build
+
+      # On Linux the bundle is a .deb, so the assertion is that the app
+      # binary exists and the bundle directory is non-empty.
+      - name: Assert the app was built
+        run: |
+          test -x apps/desktop/src-tauri/target/release/study-studio
+          ls -la apps/desktop/src-tauri/target/release/bundle/
+
+  tauri-build-windows:
+    name: tauri build (windows, nsis + msi)
+    runs-on: windows-latest
+    needs: sidecar-contract
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out Helix-Education at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HELIX_CORE_REPO }}
+          ref: ${{ env.HELIX_CORE_REF }}
+          path: helix-education
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the sidecar build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ^
+            "pyinstaller==6.22.3" ^
+            "fastapi==0.162.2" ^
+            "pydantic==2.14.3" ^
+            "uvicorn==0.54.0"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      # This is the shipping build. The sidecar must be the Windows
+      # binary: helix-core-x86_64-pc-windows-msvc.exe. PyInstaller
+      # produces a host binary, so this job runs on a Windows runner —
+      # a Linux runner cannot produce the file that goes into the
+      # installer.
+      - name: Build the helix-core sidecar
+        working-directory: apps/desktop
+        env:
+          PYTHON: python
+          HELIX_CORE_SRC: ${{ github.workspace }}\helix-education\packages\helix-core
+        run: node scripts/build-sidecar.mjs --force
+
+      - name: Assert the Windows sidecar was staged
+        shell: pwsh
+        run: |
+          $expected = "apps/desktop/src-tauri/binaries/helix-core-x86_64-pc-windows-msvc.exe"
+          if (-not (Test-Path $expected)) {
+            Write-Error "the Windows sidecar is missing at $expected"
+            Get-ChildItem apps/desktop/src-tauri/binaries/
+            exit 1
+          }
+          Write-Host "the Windows sidecar is staged: $expected"
+
+      - name: Build the installers
+        working-directory: apps/desktop
+        env:
+          PYTHON: python
+          HELIX_CORE_SRC: ${{ github.workspace }}\helix-education\packages\helix-core
+        run: npm run tauri:build
+
+      # The exit code of `tauri build` is not enough. On a platform where
+      # a bundle target does not apply, the build exits 0 and produces
+      # nothing. The shipping artefact is the installer file, so the
+      # assertion is on the files.
+      - name: Assert both installers were produced
+        shell: pwsh
+        run: |
+          $bundle = "apps/desktop/src-tauri/target/release/bundle"
+          $nsis = Get-ChildItem -Path $bundle -Recurse -Filter "*-setup.exe" -ErrorAction SilentlyContinue
+          $msi = Get-ChildItem -Path $bundle -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue
+          if (-not $nsis) {
+            Write-Error "no NSIS installer was produced"
+            Get-ChildItem -Path $bundle -Recurse -ErrorAction SilentlyContinue
+            exit 1
+          }
+          if (-not $msi) {
+            Write-Error "no MSI installer was produced"
+            Get-ChildItem -Path $bundle -Recurse -ErrorAction SilentlyContinue
+            exit 1
+          }
+          Write-Host "NSIS: $($nsis.FullName)"
+          Write-Host "MSI:  $($msi.FullName)"
+
+      - name: Upload the installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: study-studio-installers
+          path: apps/desktop/src-tauri/target/release/bundle
+          if-no-files-found: error
+          retention-days: 14

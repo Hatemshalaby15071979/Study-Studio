@@ -1,0 +1,24 @@
+# Who reviews what.
+#
+# The default owner is the repository owner. These are the paths where a
+# second pair of eyes matters most, because a change there can ship
+# something broken without any test failing.
+#
+# The last matching pattern wins, so the specific paths come first and
+# the catch-all comes last.
+
+# The sidecar contract: the handshake, the token, and the score flow that
+# the desktop app depends on across a repository boundary.
+*apps/desktop/src-tauri/src/core.rs    @Hatemshalaby15071979
+*apps/desktop/src-tauri/tests/         @Hatemshalaby15071979
+*apps/desktop/scripts/build-sidecar.mjs @Hatemshalaby15071979
+*apps/desktop/scripts/sidecar-target.mjs @Hatemshalaby15071979
+
+# The packaging configuration: bundle targets, the sidecar path, and the
+# version that ends up on the installer.
+/apps/desktop/src-tauri/tauri.conf.json @Hatemshalaby15071979
+/apps/desktop/package.json              @Hatemshalaby15071979
+
+# The release gates.
+/.github/workflows/                       @Hatemshalaby15071979
+/.github/dependabot.yml                  @Hatemshalaby15071979

@@ -90,6 +90,17 @@ jobs:
       - name: Version manifests agree
         run: npm run check:versions
 
+      # The version, the CHANGELOG and the git tags must describe the same
+      # release. A version in a manifest that no tag and no changelog entry
+      # back is a release nobody can find out about.
+      - name: Release metadata agrees
+        run: npm run check:release
+
+      # The scripts that build the sidecar and decide which platform it
+      # can be built for have their own tests.
+      - name: Script tests
+        run: npm run test:scripts
+
   test:
     name: tests and coverage floors
     runs-on: ubuntu-latest

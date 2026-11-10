@@ -1,4 +1,4 @@
-# Study Studio v0.2.0
+# Study Studio v0.2.1
 
 > **This project is governed by [Constitution 000](../../constitution.me) — our single source of truth.**
 > "Identity must precede implementation."
@@ -16,7 +16,7 @@ Study Studio is the learning engine used by **Helix Prime** and **Helix Educatio
 
 ## Releases
 
-Study Studio **v0.2.0** is the current development version. **No installer is currently published.** Earlier links pointed at a superseded account and returned 404; they have been removed rather than repointed at something that does not exist. Build from source with `npm run tauri:build` (see [Build from Source](#2-build-from-source)), or watch the releases page.
+Study Studio **v0.2.1** is the current development version. **No installer is currently published.** Earlier links pointed at a superseded account and returned 404; they have been removed rather than repointed at something that does not exist. Build from source with `npm run tauri:build` (see [Build from Source](#2-build-from-source)), or watch the releases page.
 
 **Requirement:** a local model runtime. [LM Studio](https://lmstudio.ai) is the recommended one; [Ollama](https://ollama.com) is also supported. Neither is bundled — see [Prerequisites](#prerequisites).
 

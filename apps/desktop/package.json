@@ -1,6 +1,6 @@
 {
   "name": "study-studio",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -21,6 +21,8 @@
     "check:mutations": "node scripts/check-mutations.mjs",
     "check:tokens": "node scripts/check-tokens.mjs",
     "check:versions": "node scripts/check-versions.mjs",
+    "check:release": "node scripts/check-release.mjs",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "sidecar:build": "node scripts/build-sidecar.mjs",
     "sidecar:build:force": "node scripts/build-sidecar.mjs --force",
     "verify": "node scripts/verify.mjs",
