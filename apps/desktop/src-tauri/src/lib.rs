@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use tauri::{Manager, State};
 use std::process::Command;
 
-mod core;
+pub mod core;
 mod tts;
 
 const OLLAMA_URL: &str = "http://localhost:11434";
