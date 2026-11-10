@@ -5,7 +5,7 @@
 [![CI](https://github.com/Hatemshalaby15071979/Study-Studio/actions/workflows/CI/badge.svg)](https://github.com/Hatemshalaby15071979/Study-Studio/actions)
 ![licence](https://img.shields.io/badge/licence-MIT-blue)
 ![typescript](https://img.shields.io/badge/typescript-app-3178c6)
-![status](https://img.shields.io/badge/status-v0.2.1%20released-brightgreen)
+![status](https://img.shields.io/badge/status-0.2.1%20released-brightgreen)
 
 **A private AI tutor that runs on your own computer — your lessons never leave the machine.**
 
@@ -64,8 +64,9 @@ hosted service.
 
 ## Status
 
-**Version 0.2.1 — released November 2026.** Packaged Windows installers are on
-the [Releases](releases) page. The CI badge at the top is the live build status.
+<!-- docs-sync:start -->
+**Version 0.2.1 — released 10 November 2026.** 1040 automated tests pass, the code is 86% covered, and all CI checks are green (including mutation testing). Packaged Windows installers are on the [Releases](releases) page; the CI badge at the top is the live build status.
+<!-- docs-sync:end -->
 
 ## For developers
 
