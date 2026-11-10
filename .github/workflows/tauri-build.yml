@@ -232,12 +232,22 @@ jobs:
           HELIX_CORE_SRC: ${{ github.workspace }}/helix-education/packages/helix-core
         run: npm run tauri:build
 
-      # On Linux the bundle is a .deb, so the assertion is that the app
-      # binary exists and the bundle directory is non-empty.
-      - name: Assert the app was built
+      # On Linux the bundle is empty, and that is correct: the configured
+      # bundle targets are nsis and msi, which are Windows-only, so Tauri
+      # produces the application binary and no installer.
+      #
+      # What this job therefore asserts is what the Linux build actually
+      # produces — the binary and the staged sidecar — and the Windows
+      # job asserts the installers.
+      - name: Assert the app and the sidecar were built
         run: |
+          set -euo pipefail
           test -x apps/desktop/src-tauri/target/release/study-studio
-          ls -la apps/desktop/src-tauri/target/release/bundle/
+          ls -la apps/desktop/src-tauri/target/release/study-studio
+          # The sidecar the app bundles must be the Linux one, built from
+          # the pinned Helix-Education commit.
+          test -x apps/desktop/src-tauri/binaries/helix-core-x86_64-unknown-linux-gnu
+          ls -la apps/desktop/src-tauri/binaries/
 
   tauri-build-windows:
     name: tauri build (windows, nsis + msi)
