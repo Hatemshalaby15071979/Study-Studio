@@ -83,6 +83,17 @@ const top = sections[0];
 const unreleased = top.version === "Unreleased";
 
 // ── the tags ──────────────────────────────────────────────────────────────
+// A shallow clone has no tags, and "this release was never tagged" would
+// be the wrong conclusion from it. Detect it and say so, rather than
+// reporting a false problem for every release.
+if (git(["rev-parse", "--is-shallow-repository"]) === "true") {
+  console.error(
+    "check:release — this is a shallow clone, so the tags are not available.\n" +
+      "              Fetch the history (`git fetch --unshallow`) and run this again."
+  );
+  process.exit(1);
+}
+
 const tags = git(["tag", "--list"]).split("\n").filter(Boolean);
 const taggedVersions = new Set(tags.map((t) => t.replace(/^v/, "")));
 
