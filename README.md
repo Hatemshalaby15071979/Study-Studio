@@ -135,7 +135,7 @@ Tauri `beforeDevCommand` / `beforeBuildCommand` hooks.
 so start the service yourself and point the app at it:
 
 ```bash
-pip install helix-core          # or: pip install -e Helix-Education/packages/helix-core
+pip install -e Helix-Education/packages/helix-core   # or: pip install helix-core, once published
 helix-core --port 8765          # loopback only; add HELIX_CORE_TOKEN for auth
 ```
 

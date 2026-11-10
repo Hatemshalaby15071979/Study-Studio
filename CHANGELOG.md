@@ -109,11 +109,11 @@ All notable changes to Study Studio are documented here. The format follows [Kee
 - HTML export, library persistence, and Tauri desktop shell.
 - Desktop-first release; the Expo mobile scaffold was retained but never shipped as a supported client. It was finally removed in 0.2.0.
 
+[0.2.1]: https://github.com/Hatemshalaby15071979/Study-Studio/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/Hatemshalaby15071979/Study-Studio/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Hatemshalaby15071979/Study-Studio/releases/tag/v0.1.0
 
-<!-- Link targets corrected 2026-09-27 from a superseded account, which returned 404.
-     Note: the v0.1.0 and v0.2.0 tags were never pushed to this repository, so
-     these two tag URLs do not resolve either — only v1.0.0 exists as both a tag and a release.
-     They are kept here because the changelog entries are version history, but a reader following
-     them should expect no release page. -->
+<!-- The v0.1.0 link target does not resolve: 0.1.0 was released on
+     2026-08-02 without a tag, so there is no release page for it. The
+     entry is kept because it is version history, but a reader following
+     the link should expect a 404. The v0.2.0 target does resolve. -->

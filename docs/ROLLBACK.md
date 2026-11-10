@@ -54,9 +54,16 @@ the window title.
 2. Run it. The installer replaces the current installation.
 3. Launch the app and check Help → About shows the previous version.
 
-The installers are per-platform: `Study Studio_<version>_x64-setup.exe`
-for Windows (NSIS), `Study Studio_<version>_x64_en-US.msi` for Windows
-(MSI), `.deb` for Debian/Ubuntu, `.AppImage` for Linux.
+The installers are per-platform, and they are named for the product and
+the version:
+
+| Platform | File |
+| --- | --- |
+| Windows (NSIS) | `study-studio_<version>_x64-setup.exe` |
+| Windows (MSI) | `study-studio_<version>_x64_en-US.msi` |
+
+They are produced by `npm run tauri:build` and land in
+`apps/desktop/src-tauri/target/release/bundle/`.
 
 **Install the older version over the newer one.** Do not uninstall
 first. Uninstalling removes the app but not the data directory, and
