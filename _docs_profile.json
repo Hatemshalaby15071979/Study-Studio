@@ -1,0 +1,13 @@
+{
+  "name": "Study Studio",
+  "repo": "Hatemshalaby15071979/Study-Studio",
+  "status_template": "**Version @DOCS_SYNC_VERSION@ — released @DOCS_SYNC_DATE@.** @DOCS_SYNC_TESTS@ automated tests pass, the code is @DOCS_SYNC_COVERAGE@% covered, and @DOCS_SYNC_CI@. Packaged Windows installers are on the [Releases](releases) page; the CI badge at the top is the live build status.",
+  "status_template_html": "<p class=\"status\"><strong>Version @DOCS_SYNC_VERSION@ — released @DOCS_SYNC_DATE@.</strong> @DOCS_SYNC_TESTS@ automated tests pass, the code is @DOCS_SYNC_COVERAGE@% covered, and @DOCS_SYNC_CI@. Your lessons and quiz answers stay on your computer — nothing is sent to the cloud and there is no account to create. Like any personal project, it has not had an outside security audit yet.</p>",
+  "facts": {
+    "version": "0.2.1",
+    "release_date": "10 November 2026",
+    "tests_passed": 1040,
+    "coverage": 86,
+    "ci_label": "all CI checks are green (including mutation testing)"
+  }
+}
