@@ -348,6 +348,35 @@ jobs:
           Write-Host "NSIS: $($nsis.FullName)"
           Write-Host "MSI:  $($msi.FullName)"
 
+      # The installers must CONTAIN the sidecar, not merely exist.
+      #
+      # An installer that exists but is missing the sidecar is an app whose
+      # quiz scoring does not work — the failure appears at first use, on
+      # the user's machine, with nothing in CI to say so. 7-Zip ships on
+      # the Windows runner and can list both an NSIS archive and an MSI.
+      - name: Assert the installers contain the sidecar
+        shell: pwsh
+        run: |
+          $bundle = "apps/desktop/src-tauri/target/release/bundle"
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          if (-not (Test-Path $sevenZip)) {
+            Write-Error "7-Zip is not on this runner; cannot verify the installer contents"
+            exit 1
+          }
+          $installers = @(
+            (Get-ChildItem -Path $bundle -Recurse -Filter "*-setup.exe").FullName
+            (Get-ChildItem -Path $bundle -Recurse -Filter "*.msi").FullName
+          ) | Where-Object { $_ }
+          foreach ($installer in $installers) {
+            $listing = & $sevenZip l $installer | Out-String
+            if ($listing -notmatch "helix-core") {
+              Write-Error "the sidecar is missing from $installer"
+              Write-Host $listing
+              exit 1
+            }
+            Write-Host "the sidecar is inside $installer"
+          }
+
       - name: Upload the installers
         uses: actions/upload-artifact@v4
         with:
