@@ -74,12 +74,12 @@ jobs:
     name: sidecar contract (linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The sidecar is a separate repository. It is checked out at a
       # pinned commit, not a branch.
       - name: Check out Helix-Education at the pinned commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.HELIX_CORE_REPO }}
           ref: ${{ env.HELIX_CORE_REF }}
@@ -164,10 +164,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: sidecar-contract
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check out Helix-Education at the pinned commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.HELIX_CORE_REPO }}
           ref: ${{ env.HELIX_CORE_REF }}
@@ -254,10 +254,10 @@ jobs:
     runs-on: windows-latest
     needs: sidecar-contract
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check out Helix-Education at the pinned commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.HELIX_CORE_REPO }}
           ref: ${{ env.HELIX_CORE_REF }}

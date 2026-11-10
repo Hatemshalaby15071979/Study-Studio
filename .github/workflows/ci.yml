@@ -63,7 +63,7 @@ jobs:
     name: typecheck, lint, versions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The release-consistency check reads the git tags, and
           # actions/checkout defaults to a shallow clone that has none. A
@@ -111,7 +111,7 @@ jobs:
     name: tests and coverage floors
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -138,7 +138,7 @@ jobs:
     name: static export and design tokens
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -165,7 +165,7 @@ jobs:
     name: mutation testing
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v4
