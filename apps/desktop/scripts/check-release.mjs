@@ -80,7 +80,11 @@ for (const match of changelog.matchAll(/^## \[([^\]]+)\][^\n]*$/gm)) {
 if (sections.length === 0) fail("the CHANGELOG has no version sections");
 
 const top = sections[0];
-const unreleased = top.version === "Unreleased";
+// A section is unreleased when its heading says so. The section still names
+// the version it is preparing — `## [0.2.1] - Unreleased` means 0.2.1 is
+// being prepared and has no tag yet.
+const topReleased = top.released;
+const unreleased = !topReleased;
 
 // ── the tags ──────────────────────────────────────────────────────────────
 // A shallow clone has no tags, and "this release was never tagged" would
@@ -100,27 +104,28 @@ const taggedVersions = new Set(tags.map((t) => t.replace(/^v/, "")));
 // ── the checks ────────────────────────────────────────────────────────────
 const problems = [];
 
-if (!unreleased && top.version !== manifestVersion) {
+// The top CHANGELOG section names the version being prepared. It must be
+// the version the manifests declare — whether that section is released or
+// still unreleased.
+if (top.version !== manifestVersion) {
   problems.push(
-    `the top released CHANGELOG entry is ${top.version} but the manifests declare ${manifestVersion}. ` +
+    `the top CHANGELOG entry is ${top.version} but the manifests declare ${manifestVersion}. ` +
       `Either the manifests or the CHANGELOG is out of date.`
   );
 }
 
-if (unreleased) {
-  // The unreleased section carries no version, so the version being prepared
-  // is the one in the section below it, plus whatever the manifests say.
-  const prepared = sections.slice(1).find((s) => s.released);
-  if (prepared && prepared.version !== manifestVersion) {
-    problems.push(
-      `the CHANGELOG's latest released version is ${prepared.version} but the manifests declare ` +
-        `${manifestVersion}; the unreleased section does not say which version is being prepared.`
-    );
-  }
-}
-
+// A released section must have a tag. An unreleased one must not have one
+// yet: the tag is created when the release is cut.
 for (const section of sections) {
-  if (!section.released) continue;
+  if (!section.released) {
+    if (taggedVersions.has(section.version)) {
+      problems.push(
+        `the CHANGELOG records ${section.version} as unreleased, but there is a v${section.version} tag. ` +
+          `Either the release was cut — mark it released — or the tag was made by mistake.`
+      );
+    }
+    continue;
+  }
   if (taggedVersions.has(section.version)) continue;
   if (UNTAGGED_RELEASES.has(section.version)) continue;
   problems.push(
@@ -141,8 +146,14 @@ for (const tag of tags) {
 
 // ── the report ────────────────────────────────────────────────────────────
 console.log(`  manifests        ${manifestVersion}`);
-console.log(`  changelog top    ${top.version}${unreleased ? " (unreleased section)" : ""}`);
+console.log(`  changelog top    ${top.version}${unreleased ? " (unreleased — no tag yet)" : ""}`);
 console.log(`  tags             ${tags.join(", ") || "(none)"}`);
+
+if (unreleased) {
+  console.log(
+    `                   the ${top.version} tag is created when the release is cut: git tag v${top.version}`
+  );
+}
 
 for (const [tag, why] of LEGACY_TAGS) {
   if (tags.includes(tag)) console.log(`  legacy tag       ${tag} — ${why}`);
