@@ -60,12 +60,13 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.language == 'rust' && 'manual' || 'none' }}
-
-      - name: Build for CodeQL
-        if: matrix.language == 'rust'
-        working-directory: apps/desktop/src-tauri
-        run: cargo build --release
+          # Rust does not support the manual build mode: the extractor has
+          # no way to observe a cargo invocation from outside. `none` is
+          # the supported mode for Rust, and `autobuild` would run a
+          # build of its own choosing — which for this crate would be
+          # `cargo build` at the repository root, where there is no
+          # Cargo.toml, so it would fail for the wrong reason.
+          build-mode: none
 
       - name: Analyze
         uses: github/codeql-action/analyze@v3
