@@ -2,7 +2,7 @@
 
 # Study Studio
 
-[![CI](https://github.com/Hatemshalaby15071979/Study-Studio/actions/workflows/CI/badge.svg)](https://github.com/Hatemshalaby15071979/Study-Studio/actions)
+[![CI](https://github.com/Hatemshalaby15071979/Study-Studio/actions/workflows/ci.yml/badge.svg)](https://github.com/Hatemshalaby15071979/Study-Studio/actions)
 ![licence](https://img.shields.io/badge/licence-MIT-blue)
 ![typescript](https://img.shields.io/badge/typescript-app-3178c6)
 ![status](https://img.shields.io/badge/status-0.2.1%20released-brightgreen)
