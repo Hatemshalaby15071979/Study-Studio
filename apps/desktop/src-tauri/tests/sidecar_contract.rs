@@ -31,7 +31,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use study_studio_lib::core::parse_handshake;
+use study_studio_lib::{parse_handshake, CoreEndpoint};
 
 /// How long the sidecar gets to print its handshake.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -58,7 +58,7 @@ fn sidecar_path() -> PathBuf {
 /// A running sidecar, killed and cleaned up when it goes out of scope.
 struct Sidecar {
     child: Child,
-    endpoint: study_studio_lib::core::CoreEndpoint,
+    endpoint: CoreEndpoint,
     state: PathBuf,
 }
 
@@ -144,7 +144,7 @@ fn start_sidecar() -> Sidecar {
 /// The smallest HTTP client this test needs. A hand-rolled one keeps the
 /// test free of a runtime dependency and makes the bearer header explicit.
 fn http(
-    endpoint: &study_studio_lib::core::CoreEndpoint,
+    endpoint: &CoreEndpoint,
     method: &str,
     path: &str,
     token: Option<&str>,
