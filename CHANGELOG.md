@@ -2,7 +2,7 @@
 
 All notable changes to Study Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - Unreleased
+## [0.2.1] - 2026-11-10
 
 ### Added
 - **A cross-repo contract test** (`apps/desktop/src-tauri/tests/sidecar_contract.rs`) that launches the real `helix-core` sidecar binary, parses its handshake with the production parser, and scores a real quiz through the token the handshake carried. It also asserts the negative: an unauthenticated write is refused, the registration response never leaks the answer key, and the sidecar stops serving when its parent dies. The test fails loudly when the sidecar binary is absent rather than skipping, because a skipped contract test proves nothing.

@@ -61,12 +61,14 @@ env:
   # The Helix-Education commit the helix-core sidecar is built from.
   # Pinned deliberately: see the note above.
   #
-  # This is the commit that carries the sidecar's parent-death watchdog.
-  # The sidecar must not outlive the app that spawned it, and the
-  # contract test below proves it. Pinning the release tag v2.1.0 instead
-  # would build a sidecar that leaks a process on every app exit, and the
-  # contract test would fail — which is the point of having it.
-  HELIX_CORE_REF: 112c10e5d36923a5455507a332dcb9f0283f09c2
+  # This is the Helix-Education release that carries the sidecar's
+  # parent-death watchdog. The sidecar must not outlive the app that
+  # spawned it, and the contract test below proves it.
+  #
+  # It was a commit SHA while the fix was unreleased. It is the release
+  # tag now, so the desktop app is built against a named, published
+  # version of the core rather than a commit nobody has released.
+  HELIX_CORE_REF: v2.1.1
   HELIX_CORE_REPO: Hatemshalaby15071979/Helix-Education
 
 jobs:
