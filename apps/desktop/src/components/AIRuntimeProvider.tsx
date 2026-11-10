@@ -8,7 +8,7 @@ import {
 } from "@/lib/api";
 import type { AIProviderStatus } from "@/lib/ai-runtime/types";
 import { aiRuntime } from "@/lib/ai-runtime";
-import { applyStoredConfigs } from "@/lib/ai-runtime/providerStore";
+import { applyStoredConfigs, ensureConfigLoaded } from "@/lib/ai-runtime/providerStore";
 import { LOCAL_PROVIDER_IDS, ONLINE_PROVIDER_IDS } from "@/lib/ai-runtime/providerIds";
 import {
   computeCanGenerate,
@@ -182,7 +182,7 @@ export function AIRuntimeProvider({ children }: { children: ReactNode }) {
   // bootstrap retry loop. Used by the Settings "Re-scan" button and after a
   // model load/unload.
   const refreshProviders = useCallback(async () => {
-    applyStoredConfigs(aiRuntime);
+    void ensureConfigLoaded().then(() => applyStoredConfigs(aiRuntime));
     // An explicit re-scan must perform real probes. Without this the health
     // monitor answered from its 10 s cache, so "Re-scan" reported what the app
     // already believed instead of what is actually running.

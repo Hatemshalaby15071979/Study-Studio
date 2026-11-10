@@ -55,24 +55,32 @@ const CONFIDENCE_WINDOW_MS = 60_000; // avg response at/above 60s → confidence
 
 // ─── HTML / text helpers ──────────────────────────────────────────────────
 
-/** Strip HTML to readable plain text (no DOM dependency; jest/node-safe). */
+/**
+ * Strip HTML to readable plain text.
+ *
+ * Uses the platform DOM parser (browser, Tauri webview, and the jsdom test
+ * environment) rather than regular-expression tag filtering. Regex HTML
+ * stripping is both incorrect on real markup and a static-analysis liability
+ * (it cannot actually sanitise, so it is flagged as a bad tag filter and as
+ * double-escaping). Parsing and reading `textContent` lets the parser handle
+ * entity decoding, so there is no hand-rolled decode step to trip on either.
+ */
 export function htmlToPlainText(html: string): string {
   if (!html) return "";
-  let text = html
-    // drop script/style blocks first so their text never leaks in
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    // decode the most common entities
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'");
-  // collapse whitespace and trim
-  text = text.replace(/\s+/g, " ").trim();
-  return text;
+
+  // No DOM available (a non-jsdom Node context — never hit by the app or the
+  // suite): best-effort whitespace collapse only. We deliberately do NOT try
+  // to strip tags with a regex here; that is the pattern this replaces and it
+  // would re-introduce the same analyzer findings.
+  if (typeof DOMParser === "undefined") {
+    return html.replace(/\s+/g, " ").trim();
+  }
+
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  // Script/style bodies are not visible text; drop them before reading.
+  doc.querySelectorAll("script, style").forEach((el) => el.remove());
+  const text = doc.body?.textContent ?? doc.documentElement.textContent ?? "";
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /** Deterministic djb2 string hash → stable short ids. */

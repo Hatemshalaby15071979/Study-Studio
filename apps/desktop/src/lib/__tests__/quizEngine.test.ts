@@ -15,7 +15,7 @@ import type { DiagnosticQuiz, DiagnosticQuizQuestion, DiagnosticAnswer } from "@
 // ---------------------------------------------------------------------------
 describe("htmlToPlainText", () => {
   it("strips HTML tags and collapses whitespace", () => {
-    expect(htmlToPlainText("<p>Hello <b>World</b>!</p>")).toBe("Hello World !");
+    expect(htmlToPlainText("<p>Hello <b>World</b>!</p>")).toBe("Hello World!");
   });
 
   it("drops script and style blocks", () => {

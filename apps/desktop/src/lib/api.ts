@@ -7,7 +7,7 @@
 // (Tauri IPC in the desktop shell, direct HTTP in a plain browser).
 import { aiRuntime } from "./ai-runtime";
 import type { AIProviderStatus } from "./ai-runtime/types";
-import { applyStoredConfigs } from "./ai-runtime/providerStore";
+import { applyStoredConfigs, ensureConfigLoaded } from "./ai-runtime/providerStore";
 import { isLocalUp } from "./ai-runtime/routing";
 import { generateLesson, generatePodcastOnly, type GenerateRequest, type GeneratedLesson } from "./generation";
 import { evaluateQuiz, type EvaluationResult } from "./evaluation";
@@ -114,7 +114,7 @@ const BOOTSTRAP_RETRY_DELAY_MS = 1500;
 export async function initializeRuntime(): Promise<RuntimeInitResult> {
   // Re-apply any persisted user config (online keys) so an online provider is
   // usable when no local server is present.
-  applyStoredConfigs(aiRuntime);
+  void ensureConfigLoaded().then(() => applyStoredConfigs(aiRuntime));
 
   // Step 1 — discovery. Everything downstream is derived from this.
   //
