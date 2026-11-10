@@ -139,6 +139,18 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      # The static export has to exist before the Rust crate compiles:
+      # `tauri::generate_context!()` reads `frontendDist` at compile time
+      # and fails the build if the directory is missing. So the frontend is
+      # built first, even though this job only wants the contract test.
+      - name: Build the static export
+        working-directory: apps/desktop
+        run: npm run build:prod
+
       # The cross-repo contract test: the real sidecar binary, the real
       # handshake, the real score flow. It fails loudly if the sidecar is
       # missing rather than skipping, because a skipped contract test
