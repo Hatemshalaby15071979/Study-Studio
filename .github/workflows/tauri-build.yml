@@ -354,6 +354,13 @@ jobs:
       # quiz scoring does not work — the failure appears at first use, on
       # the user's machine, with nothing in CI to say so. 7-Zip ships on
       # the Windows runner and can list both an NSIS archive and an MSI.
+      #
+      # The pattern matches `helix-core` OR `helix_core` because the two
+      # formats spell the name differently: the NSIS archive lists
+      # `helix-core.exe`, while the MSI stores the file under an 8.3 short
+      # name (`Bin_helix_core.exe`) even though the installed file is
+      # `helix-core.exe`. Matching only one spelling would report a
+      # correct installer as broken.
       - name: Assert the installers contain the sidecar
         shell: pwsh
         run: |
@@ -369,7 +376,7 @@ jobs:
           ) | Where-Object { $_ }
           foreach ($installer in $installers) {
             $listing = & $sevenZip l $installer | Out-String
-            if ($listing -notmatch "helix-core") {
+            if ($listing -notmatch "helix[-_]core") {
               Write-Error "the sidecar is missing from $installer"
               Write-Host $listing
               exit 1
