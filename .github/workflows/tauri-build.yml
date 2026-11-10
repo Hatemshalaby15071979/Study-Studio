@@ -103,8 +103,9 @@ jobs:
             "pydantic==2.14.3" \
             "uvicorn==0.54.0"
 
-      # The Tauri crate links against webkit2gtk, so the Rust build needs
-      # the system libraries even when only the contract test is run.
+      # The Tauri crate links against webkit2gtk and openssl, so the Rust
+      # build needs the system libraries even when only the contract test
+      # is run.
       - name: Install the Linux build dependencies
         run: |
           sudo apt-get update
@@ -112,6 +113,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
+            libssl-dev \
+            pkg-config \
             patchelf \
             file \
             wget \
@@ -179,6 +182,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
+            libssl-dev \
+            pkg-config \
             patchelf \
             file \
             wget \
@@ -241,14 +246,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      # One line: the Windows runner's default shell is PowerShell, where a
+      # trailing backslash is not a line continuation.
       - name: Install the sidecar build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install ^
-            "pyinstaller==6.22.3" ^
-            "fastapi==0.162.2" ^
-            "pydantic==2.14.3" ^
-            "uvicorn==0.54.0"
+        run: python -m pip install --upgrade pip && python -m pip install "pyinstaller==6.22.3" "fastapi==0.162.2" "pydantic==2.14.3" "uvicorn==0.54.0"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -279,7 +280,7 @@ jobs:
         working-directory: apps/desktop
         env:
           PYTHON: python
-          HELIX_CORE_SRC: ${{ github.workspace }}\helix-education\packages\helix-core
+          HELIX_CORE_SRC: ${{ github.workspace }}/helix-education/packages/helix-core
         run: node scripts/build-sidecar.mjs --force
 
       - name: Assert the Windows sidecar was staged
@@ -297,7 +298,7 @@ jobs:
         working-directory: apps/desktop
         env:
           PYTHON: python
-          HELIX_CORE_SRC: ${{ github.workspace }}\helix-education\packages\helix-core
+          HELIX_CORE_SRC: ${{ github.workspace }}/helix-education/packages/helix-core
         run: npm run tauri:build
 
       # The exit code of `tauri build` is not enough. On a platform where
