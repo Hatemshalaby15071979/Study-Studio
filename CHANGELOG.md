@@ -2,7 +2,20 @@
 
 All notable changes to Study Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - Unreleased
+## [0.2.1] - Unreleased
+
+### Added
+- **A cross-repo contract test** (`apps/desktop/src-tauri/tests/sidecar_contract.rs`) that launches the real `helix-core` sidecar binary, parses its handshake with the production parser, and scores a real quiz through the token the handshake carried. It also asserts the negative: an unauthenticated write is refused, the registration response never leaks the answer key, and the sidecar stops serving when its parent dies. The test fails loudly when the sidecar binary is absent rather than skipping, because a skipped contract test proves nothing.
+
+### Fixed
+- **The sidecar script named its output after the target triple, but PyInstaller compiles for the machine it runs on.** Cross-compiling therefore produced a binary with one architecture under a name claiming another — for the shipping target, a Linux ELF named `helix-core-x86_64-pc-windows-msvc.exe`. It failed on the filename check by luck; where the names happened to agree it would have shipped a mislabelled binary that only failed at runtime. The script now compares the target with the host and refuses to build when they differ, naming the fix.
+- **The frozen sidecar outlived the app that spawned it.** A PyInstaller bundle is a bootloader plus a worker; killing the bootloader does not kill the worker, so the core kept serving — holding the port, the database and the token — after the desktop app had exited. The core now arms a parent-death watchdog in handshake mode.
+
+### Changed
+- CI can now build the packaged app: a new `tauri-build` workflow builds the sidecar from a pinned Helix-Education commit and asserts that the NSIS and MSI installers are actually produced, rather than trusting an exit code.
+- The CHANGELOG now records `0.2.0` as released on the date it was tagged, and moves this work under `Unreleased`.
+
+## [0.2.0] - 2026-11-09
 
 ### Added
 - AI Runtime abstraction with pluggable providers. LM Studio is a **native** provider (`src/lib/ai-runtime/providers/lmStudio.ts`) speaking its REST API v1, with v0 and OpenAI-compatible fallbacks for older servers; Ollama and OpenAI/OpenRouter are also registered.
@@ -96,11 +109,11 @@ All notable changes to Study Studio are documented here. The format follows [Kee
 - HTML export, library persistence, and Tauri desktop shell.
 - Desktop-first release; the Expo mobile scaffold was retained but never shipped as a supported client. It was finally removed in 0.2.0.
 
+[0.2.1]: https://github.com/Hatemshalaby15071979/Study-Studio/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/Hatemshalaby15071979/Study-Studio/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Hatemshalaby15071979/Study-Studio/releases/tag/v0.1.0
 
-<!-- Link targets corrected 2026-09-27 from a superseded account, which returned 404.
-     Note: the v0.1.0 and v0.2.0 tags were never pushed to this repository, so
-     these two tag URLs do not resolve either — only v1.0.0 exists as both a tag and a release.
-     They are kept here because the changelog entries are version history, but a reader following
-     them should expect no release page. -->
+<!-- The v0.1.0 link target does not resolve: 0.1.0 was released on
+     2026-08-02 without a tag, so there is no release page for it. The
+     entry is kept because it is version history, but a reader following
+     the link should expect a 404. The v0.2.0 target does resolve. -->

@@ -1,6 +1,6 @@
 {
   "name": "study-studio",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Study Studio desktop app - AI-powered lesson generator (Tauri + Next.js).",
   "scripts": {

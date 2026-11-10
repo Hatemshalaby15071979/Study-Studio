@@ -6,6 +6,13 @@ use std::process::Command;
 mod core;
 mod tts;
 
+// The cross-repo contract test (`tests/sidecar_contract.rs`) is a separate
+// crate, so it cannot reach into a private module. Re-export exactly the
+// two items it needs rather than making the whole module public: the
+// module holds the sidecar's lifecycle, and none of that should be part
+// of the library's public surface.
+pub use core::{parse_handshake, CoreEndpoint};
+
 const OLLAMA_URL: &str = "http://localhost:11434";
 
 pub struct AppState {

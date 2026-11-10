@@ -19,6 +19,8 @@ import { existsSync, mkdirSync, readdirSync, statSync, copyFileSync, chmodSync, 
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { checkBuildable } from "./sidecar-target.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_DIR = resolve(HERE, "..");
 const OUT_DIR = join(APP_DIR, "src-tauri", "binaries");
@@ -39,6 +41,17 @@ function hostTriple() {
   const host = (out.stdout ?? "").split("\n").find((l) => l.startsWith("host: "));
   if (!host) fail("could not read the host triple from `rustc -vV`", 2);
   return host.slice("host: ".length).trim();
+}
+
+/**
+ * The triple the sidecar must be built FOR.
+ *
+ * Tauri sets TAURI_ENV_TARGET_TRIPLE for the build. Outside a Tauri build
+ * (a developer running this script by hand) there is no target, so the
+ * host triple is the target.
+ */
+function targetTriple() {
+  return process.env["TAURI_ENV_TARGET_TRIPLE"] ?? hostTriple();
 }
 
 function newestMtime(dir) {
@@ -64,10 +77,25 @@ if (!existsSync(join(src, "helix_core", "__main__.py"))) {
   );
 }
 
-const triple = hostTriple();
+const triple = targetTriple();
 const isWindows = triple.includes("windows");
 const outName = `helix-core-${triple}${isWindows ? ".exe" : ""}`;
 const outPath = join(OUT_DIR, outName);
+
+// PyInstaller compiles for the machine it runs on. Building for another
+// target would produce a binary with the wrong architecture under a name
+// that claims the right one — so refuse rather than ship a mislabelled
+// file. The fix is to build on the target platform, which is why the CI
+// workflow has a Windows job and a Linux job rather than one cross-build.
+const buildable = checkBuildable(triple);
+if (!buildable.ok) {
+  fail(
+    `cannot build the sidecar for ${triple}: ${buildable.reason}\n` +
+      `       build the sidecar on a ${triple.split("-").slice(1).join("-")} machine, ` +
+      `or unset TAURI_ENV_TARGET_TRIPLE to build for this machine`,
+    2
+  );
+}
 
 mkdirSync(OUT_DIR, { recursive: true });
 

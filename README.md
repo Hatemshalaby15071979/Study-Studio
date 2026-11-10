@@ -104,6 +104,13 @@ and proxies every call through the Rust command `core_fetch`. The port never
 has to be known in advance and the bearer token never enters the webview.
 Nothing needs to be started by hand.
 
+The contract between the two repositories is pinned by a test:
+`apps/desktop/src-tauri/tests/sidecar_contract.rs` launches the real sidecar
+binary, parses its handshake with the production parser, and scores a real
+quiz through the token the handshake carried. It also asserts that the
+sidecar stops serving when its parent dies — a frozen sidecar is a
+bootloader plus a worker, and the worker must not outlive the app.
+
 The sidecar binary is built from the `helix-core` distribution and staged as
 `src-tauri/binaries/helix-core-<target-triple>`:
 
@@ -128,7 +135,7 @@ Tauri `beforeDevCommand` / `beforeBuildCommand` hooks.
 so start the service yourself and point the app at it:
 
 ```bash
-pip install helix-core          # or: pip install -e Helix-Education/packages/helix-core
+pip install -e Helix-Education/packages/helix-core   # or: pip install helix-core, once published
 helix-core --port 8765          # loopback only; add HELIX_CORE_TOKEN for auth
 ```
 
@@ -141,33 +148,40 @@ does not fall back to client-side scoring. The answer key lives in the core's
 
 ## Production status & test coverage
 
-Snapshot 2026-10-02. The latest CI run on `main` is
-[`36960778059`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36960778059),
-head `8b46d645731d41d762b0ba40c09cb7eb8dec1056` — a docs-only commit, so the measured
-results below are unchanged from the preceding code run
-[`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646),
-head `88ade450689cd377ec9d90d358787bff269d070b`; that run's job logs are the source for
-the test counts, coverage, and workflow results in the table below:
+Snapshot 2026-11-10. The latest CI run on `main` is
+[`42612798522`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/42612798522),
+head `608fa1a25be4fdc0763380fca3780810250069cb` — all four jobs passed:
+`typecheck, lint, versions`; `tests and coverage floors`;
+`static export and design tokens`; and `mutation testing`.
+
+The counts below are measured on that head, locally, with the same commands
+CI runs. The run's own logs are the source for the job results; the log
+download for it has expired, so the numbers are a local measurement against
+the same commit rather than a copy out of the run.
 
 | Check | Result | Source |
 | --- | --- | --- |
-| Test suites | 47 passed / 47 total | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Tests | 986 passed / 986 total | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Coverage (statements / branches) | 85.66% / 75.13% | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Typecheck (`tsc --noEmit`) | Clean | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Lint (`eslint src --max-warnings 0`) | Clean | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Version manifests | Clean — 4 manifests agree at 0.2.0 | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Design-token guard | Clean — 20 token utilities, 1 stylesheet | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Static export (`next build --webpack`) | Clean — 7 routes, all prerendered | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Coverage floors (`check:coverage`) | Met — `src/lib/ai-runtime/runtime.ts` at 100% lines | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
-| Mutation testing (28 targeted mutations) | 28/28 caught | CI run [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646), 2026-10-01 |
+| Test suites | 50 passed / 50 total | `npm run test:ci` at `608fa1a` |
+| Tests | 1040 passed / 1040 total | `npm run test:ci` at `608fa1a` |
+| Coverage (statements / branches) | 86.12% / 75.02% | `npm run test:ci` at `608fa1a` |
+| Typecheck (`tsc --noEmit`) | Clean | CI run [`42612798522`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/42612798522), 2026-11-09 |
+| Lint (`eslint src --max-warnings 0`) | Clean | CI run [`42612798522`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/42612798522), 2026-11-09 |
+| Version manifests | Clean — 4 manifests agree | `npm run check:versions` at `608fa1a` |
+| Release metadata | Clean — the version, the CHANGELOG and the tags agree | `npm run check:release` at `608fa1a` |
+| Design-token guard | Clean — 20 token utilities, 1 stylesheet | CI run [`42612798522`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/42612798522), 2026-11-09 |
+| Static export (`next build --webpack`) | Clean — 7 routes, all prerendered | CI run [`42612798522`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/42612798522), 2026-11-09 |
+| Coverage floors (`check:coverage`) | Met — `src/lib/ai-runtime/runtime.ts` at 100% lines | CI run [`42612798522`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/42612798522), 2026-11-09 |
+| Mutation testing (28 targeted mutations) | 28/28 caught | CI run [`42612798522`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/42612798522), 2026-11-09 |
+| Cross-repo contract test | 3 passed / 3 total | `cargo test --test sidecar_contract` at `608fa1a` |
+| Packaged build (NSIS + MSI) | Built on a Windows runner | [`.github/workflows/tauri-build.yml`](.github/workflows/tauri-build.yml) |
+| Secret scan (tree + history) | No findings | `.github/workflows/secret-scan.yml` |
 
 > [!IMPORTANT]
 > **CI is green on `main`.** The latest run is
-> [`36803605646`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/36803605646)
-> (2026-10-01, head `88ade450689cd377ec9d90d358787bff269d070b`, branch `main`, event `push`); all four jobs passed:
+> [`42612798522`](https://github.com/Hatemshalaby15071979/Study-Studio/actions/runs/42612798522)
+> (2026-11-09, head `608fa1a25be4fdc0763380fca3780810250069cb`, branch `main`, event `push`); all four jobs passed:
 > `typecheck, lint, versions`; `tests and coverage floors`; `static export and design tokens`;
-> and `mutation testing`. The first fully green run on `main` was `36803350157`.
+> and `mutation testing`.
 >
 > The two jobs that had been red were fixed rather than muted. `Coverage floors` failed on
 > `runtime.ts` at 94.63% lines against a 95% floor, and is closed with five behavioural tests
@@ -177,9 +191,6 @@ the test counts, coverage, and workflow results in the table below:
 > worker exhausted the V8 heap and died by SIGKILL, which the harness reported as a timeout.
 > It was retargeted at the schema's own suite (`validation.test.ts`), where it fails fast and
 > deterministically. No floor was lowered and no mutation was deleted.
->
-> The 13 commits that produced this green run were promoted to `main` by a fast-forward push
-> (`dbc370a..2947dfc`). The badge at the top of this file tracks `main` and now renders green.
 
 > [!WARNING]
 > Live opt-in suites exist for LM Studio and Ollama (`LMSTUDIO_LIVE=1`, `OLLAMA_LIVE=1`); without those env vars CI stays hermetic. Generation needs a local model runtime. Audio export needs Piper voice files plus ffmpeg. On a clean machine with neither, the app will not produce lessons or audio. The mobile client was removed, and a hosted SaaS is not offered. No external audit, no certified data isolation, no signed security review, no revenue.
@@ -220,14 +231,43 @@ CORS. The desktop shell routes through Rust and does not have that constraint.
 cd apps/desktop
 npm install
 npm run tauri:dev      # development
-npm run tauri:build    # Windows installer
+npm run tauri:build    # packaged app
 ```
 
 `npm run tauri:dev` starts the dev server through `scripts/dev-warm.mjs`, which shells out
 to `npm run dev` — so it inherits the Turbopack policy above.
 
+`npm run tauri:build` runs `sidecar:build` and `build:prod` first, then packages the
+app. **The sidecar must be built for the platform you are packaging for.** PyInstaller
+compiles for the machine it runs on, so a Windows installer has to be built on Windows —
+the script refuses to cross-compile rather than writing a binary with the wrong
+architecture under the right name.
+
+What each platform produces:
+
+| Platform | Bundle | Produced by |
+| --- | --- | --- |
+| Windows | NSIS installer (`.exe`) and MSI (`.msi`) | `npm run tauri:build` on Windows |
+| Linux | `.deb` | `npm run tauri:build` on Linux |
+| macOS | `.dmg` / `.app` | `npm run tauri:build` on macOS |
+
+The installers land in `apps/desktop/src-tauri/target/release/bundle/`.
+
+To package against a different version of the core, point the sidecar build at that
+source:
+
+```bash
+HELIX_CORE_SRC=/path/to/Helix-Education/packages/helix-core \
+  npm run sidecar:build:force --prefix apps/desktop
+```
+
 For local models, LM Studio (port `1234`) or Ollama (port `11434`). For audio, install
 Piper voice models **and** ffmpeg.
+
+### Rolling back
+
+See [docs/ROLLBACK.md](docs/ROLLBACK.md). In short: a rollback is a reinstall of the
+previous version, and the lesson library survives it.
 
 ## Related work
 

@@ -1,0 +1,74 @@
+# CodeQL analysis.
+#
+# The desktop app is TypeScript and Rust, so both are analysed. The build
+# mode matters for a compiled language: Rust needs the crate to be built
+# for CodeQL to see the data flow, which is why the Rust job installs the
+# toolchain and builds rather than running the auto build.
+
+name: CodeQL
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  # So the analysis can be run on demand — before a change reaches main,
+  # or to re-run it without waiting for the next push.
+  workflow_dispatch:
+  schedule:
+    # Weekly, because a vulnerability disclosed against a dependency
+    # shipped yesterday is not found by scanning yesterday's code.
+    - cron: "17 5 * * 1"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, rust]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: matrix.language == 'javascript-typescript'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Setup Rust
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Rust does not support the manual build mode: the extractor has
+          # no way to observe a cargo invocation from outside. `none` is
+          # the supported mode for Rust, and `autobuild` would run a
+          # build of its own choosing — which for this crate would be
+          # `cargo build` at the repository root, where there is no
+          # Cargo.toml, so it would fail for the wrong reason.
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

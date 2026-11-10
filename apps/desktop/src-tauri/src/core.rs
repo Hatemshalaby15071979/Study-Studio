@@ -61,7 +61,11 @@ impl CoreHandle {
 }
 
 /// Parse the one line the core prints before it starts serving.
-fn parse_handshake(line: &str) -> Option<CoreEndpoint> {
+///
+/// Public so the cross-repo contract test (`tests/sidecar_contract.rs`) can
+/// assert the real parser accepts the real sidecar's output, rather than a
+/// copy of it that could drift.
+pub fn parse_handshake(line: &str) -> Option<CoreEndpoint> {
     let value: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
     if value.get("event")?.as_str()? != "ready" {
         return None;
