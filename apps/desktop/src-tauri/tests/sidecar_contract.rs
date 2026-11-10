@@ -278,6 +278,54 @@ fn the_sidecar_handshake_and_score_flow_hold() {
     let _ = &sidecar.child;
 }
 
+/// The sidecar must not outlive the process that spawned it.
+///
+/// The frozen sidecar is a PyInstaller bundle: a bootloader process that
+/// forks a worker which serves the API. Killing the bootloader does not
+/// necessarily kill the worker, and a worker that survives holds the
+/// database, the port, and the token alive after the desktop app has
+/// exited.
+///
+/// The check is behavioural rather than "is the pid gone": the port must
+/// stop accepting connections. That is the thing a user would actually
+/// notice — the next launch of the app would find the previous core still
+/// holding its port.
+#[test]
+fn the_sidecar_does_not_outlive_its_parent() {
+    let mut sidecar = start_sidecar();
+    let port = sidecar.endpoint.port;
+
+    // It is serving.
+    let (status, _) = http(&sidecar.endpoint, "GET", "/v1/health", None, None);
+    assert_eq!(status, 200, "the sidecar was not serving before the kill");
+
+    // The parent dies, exactly as it would when the desktop app exits.
+    let _ = sidecar.child.kill();
+    let _ = sidecar.child.wait();
+
+    // The port must stop being served within a bounded time.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut still_serving = true;
+    while Instant::now() < deadline {
+        if std::net::TcpStream::connect_timeout(
+            &format!("127.0.0.1:{port}").parse().unwrap(),
+            Duration::from_millis(500),
+        )
+        .is_err()
+        {
+            still_serving = false;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+
+    assert!(
+        !still_serving,
+        "the helix-core sidecar is still serving on port {port} after its parent was killed — \
+         the frozen worker outlived the process that started it"
+    );
+}
+
 /// The handshake parser is the contract's front door. These are cheap
 /// regressions against the exact line the core prints.
 #[test]
