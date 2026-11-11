@@ -935,6 +935,38 @@ async fn list_tts_languages(app: tauri::AppHandle) -> Result<Vec<String>, String
     Ok(tts::list_installed_languages(&model_dir))
 }
 
+// --- OS keychain (provider credentials) ----------------------------------
+// The webview never writes an API key to localStorage. It calls these three
+// commands, which use the platform credential store through the keyring crate.
+// Failure is returned as an error so the frontend can report "not persisted"
+// instead of silently degrading to web storage.
+
+#[tauri::command]
+fn keychain_set(service: String, account: String, secret: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    entry.set_password(&secret).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn keychain_get(service: String, account: String) -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn keychain_delete(service: String, account: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -978,6 +1010,9 @@ pub fn run() {
             voice_studio_status,
             core::core_status,
             core::core_fetch,
+            keychain_set,
+            keychain_get,
+            keychain_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
