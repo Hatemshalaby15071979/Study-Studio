@@ -78,11 +78,20 @@ jobs:
     name: sidecar contract (linux)
     runs-on: ubuntu-latest
     steps:
+      # Fail fast, and clearly, when the secret is missing. The check lives
+      # in the shell rather than in an `if:` because the `secrets` context
+      # is not available to a step-level `if:` — using it there makes the
+      # whole workflow invalid, and the run fails before any job starts.
+      # `shell: bash` keeps the one step valid on both Linux and Windows.
       - name: Check HELIX_EDU_TOKEN
-        if: ${{ secrets.HELIX_EDU_TOKEN == '' }}
+        shell: bash
+        env:
+          HELIX_EDU_TOKEN: ${{ secrets.HELIX_EDU_TOKEN }}
         run: |
-          echo "::error::HELIX_EDU_TOKEN secret is not set — add a fine-grained read-only PAT via gh secret set HELIX_EDU_TOKEN"
-          exit 1
+          if [ -z "$HELIX_EDU_TOKEN" ]; then
+            echo "::error::HELIX_EDU_TOKEN secret is not set — add a fine-grained read-only PAT via gh secret set HELIX_EDU_TOKEN"
+            exit 1
+          fi
       - uses: actions/checkout@v4
 
       # The sidecar is a separate repository. It is checked out at a
@@ -175,10 +184,14 @@ jobs:
     needs: sidecar-contract
     steps:
       - name: Check HELIX_EDU_TOKEN
-        if: ${{ secrets.HELIX_EDU_TOKEN == '' }}
+        shell: bash
+        env:
+          HELIX_EDU_TOKEN: ${{ secrets.HELIX_EDU_TOKEN }}
         run: |
-          echo "::error::HELIX_EDU_TOKEN secret is not set — add a fine-grained read-only PAT via gh secret set HELIX_EDU_TOKEN"
-          exit 1
+          if [ -z "$HELIX_EDU_TOKEN" ]; then
+            echo "::error::HELIX_EDU_TOKEN secret is not set — add a fine-grained read-only PAT via gh secret set HELIX_EDU_TOKEN"
+            exit 1
+          fi
       - uses: actions/checkout@v4
 
       - name: Check out Helix-Education at the pinned commit
@@ -274,10 +287,14 @@ jobs:
     needs: sidecar-contract
     steps:
       - name: Check HELIX_EDU_TOKEN
-        if: ${{ secrets.HELIX_EDU_TOKEN == '' }}
+        shell: bash
+        env:
+          HELIX_EDU_TOKEN: ${{ secrets.HELIX_EDU_TOKEN }}
         run: |
-          echo "::error::HELIX_EDU_TOKEN secret is not set — add a fine-grained read-only PAT via gh secret set HELIX_EDU_TOKEN"
-          exit 1
+          if [ -z "$HELIX_EDU_TOKEN" ]; then
+            echo "::error::HELIX_EDU_TOKEN secret is not set — add a fine-grained read-only PAT via gh secret set HELIX_EDU_TOKEN"
+            exit 1
+          fi
       - uses: actions/checkout@v4
 
       - name: Check out Helix-Education at the pinned commit
