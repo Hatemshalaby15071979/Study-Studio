@@ -18,8 +18,12 @@ import { noCapabilities } from "@/lib/ai-runtime/capabilities";
 // inputs, survives a failed handshake, and binds skills exactly once.
 
 jest.mock("@/lib/api", () => ({ initializeRuntime: jest.fn() }));
+// The factory has to mirror every export the component imports: refreshProviders
+// awaits ensureConfigLoaded() before applying stored configs, so omitting it made
+// the import undefined and every "Re-scan" test throw a TypeError.
 jest.mock("@/lib/ai-runtime/providerStore", () => ({
   applyStoredConfigs: jest.fn(),
+  ensureConfigLoaded: jest.fn(() => Promise.resolve()),
   hasApiKey: jest.fn(),
 }));
 jest.mock("@/lib/ai-runtime", () => ({

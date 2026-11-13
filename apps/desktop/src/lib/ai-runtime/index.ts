@@ -7,7 +7,7 @@ import { AIRuntime } from "./runtime";
 import { OllamaProvider } from "./providers/ollama";
 import { OpenAICompatibleProvider, openAIProviderProfiles } from "./providers/openaiCompatible";
 import { createLMStudioProvider } from "./providers/lmStudio";
-import { applyStoredConfigs } from "./providerStore";
+import { applyStoredConfigs, ensureConfigLoaded } from "./providerStore";
 
 export { AIRuntime } from "./runtime";
 export { ProviderRegistry } from "./providerRegistry";
@@ -33,6 +33,7 @@ export {
   hasApiKey,
   applyConfig,
   applyStoredConfigs,
+  ensureConfigLoaded,
   type ProviderConfig,
 } from "./providerStore";
 export {
@@ -111,5 +112,6 @@ export const aiRuntime: AIRuntime = createRuntime(
 
 // Apply any persisted user config (online API keys, base-URL overrides) before
 // the first discovery so a returning user's online provider is immediately
-// usable. Safe no-op on first run / SSR.
-applyStoredConfigs(aiRuntime);
+// usable. Load is async (the config is decrypted at rest), so apply once it
+// resolves. Safe no-op on first run / SSR / when storage is unavailable.
+void ensureConfigLoaded().then(() => applyStoredConfigs(aiRuntime));

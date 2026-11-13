@@ -15,6 +15,20 @@ if (typeof (globalThis as any).structuredClone !== 'function') {
     v8.deserialize(v8.serialize(value));
 }
 
+// jsdom does not implement Web Crypto's `crypto.subtle` (it ships getRandomValues
+// and randomUUID only). Provider config is encrypted at rest with AES-GCM via
+// `crypto.subtle`; without it the module silently degrades to in-memory-only and
+// the encryption path cannot be exercised. Node ships a complete implementation,
+// so use it whenever the platform one is incomplete.
+if (!(globalThis as any).crypto?.subtle) {
+  const { webcrypto } = require("node:crypto") as typeof import("node:crypto");
+  Object.defineProperty(globalThis, "crypto", {
+    writable: true,
+    configurable: true,
+    value: webcrypto,
+  });
+}
+
 // jsdom does not implement AbortSignal.timeout; ollama.ts relies on it.
 if (typeof (AbortSignal as any).timeout !== 'function') {
   (AbortSignal as any).timeout = (ms: number) => {

@@ -69,12 +69,13 @@ describe("providerStore — reading", () => {
     expect(freshStore().getProviderConfig("openai")).toEqual({});
   });
 
-  it("reads a config that was already on disk", () => {
+  it("reads a config that was already on disk", async () => {
     installStorage({
       [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "sk-existing", baseUrl: "http://x" } }),
     });
 
     const store = freshStore();
+    await store.ensureConfigLoaded();
 
     expect(store.getProviderConfig("openai")).toEqual({
       apiKey: "sk-existing",
@@ -83,9 +84,10 @@ describe("providerStore — reading", () => {
     expect(store.hasApiKey("openai")).toBe(true);
   });
 
-  it("returns a copy, so callers cannot mutate the cache", () => {
+  it("returns a copy, so callers cannot mutate the cache", async () => {
     installStorage({ [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "sk" } }) });
     const store = freshStore();
+    await store.ensureConfigLoaded();
 
     const cfg = store.getProviderConfig("openai");
     cfg.apiKey = "tampered";
@@ -93,11 +95,12 @@ describe("providerStore — reading", () => {
     expect(store.getProviderConfig("openai").apiKey).toBe("sk");
   });
 
-  it("copies every entry from getAllProviderConfigs", () => {
+  it("copies every entry from getAllProviderConfigs", async () => {
     installStorage({
       [STORAGE_KEY]: JSON.stringify({ a: { apiKey: "1" }, b: { baseUrl: "http://b" } }),
     });
     const store = freshStore();
+    await store.ensureConfigLoaded();
 
     const all = store.getAllProviderConfigs();
     expect(Object.keys(all).sort()).toEqual(["a", "b"]);
@@ -106,39 +109,58 @@ describe("providerStore — reading", () => {
     expect(store.getProviderConfig("a").apiKey).toBe("1");
   });
 
-  it("treats an empty key as absent", () => {
+  it("treats an empty key as absent", async () => {
     installStorage({ [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "" } }) });
-    expect(freshStore().hasApiKey("openai")).toBe(false);
+    const store = freshStore();
+    await store.ensureConfigLoaded();
+    expect(store.hasApiKey("openai")).toBe(false);
   });
 
-  it("survives corrupt JSON on disk", () => {
+  it("reports nothing for a provider it has never seen", () => {
+    const store = freshStore();
+    expect(store.getProviderConfig("never-configured")).toEqual({});
+    expect(store.hasApiKey("never-configured")).toBe(false);
+  });
+
+  it("survives corrupt JSON on disk", async () => {
     installStorage({ [STORAGE_KEY]: "{not json" });
 
     const store = freshStore();
+    await store.ensureConfigLoaded();
 
     expect(store.getProviderConfig("openai")).toEqual({});
     expect(store.getAllProviderConfigs()).toEqual({});
   });
 
-  it("ignores a stored value that is not an object", () => {
+  it("ignores a stored value that is not an object", async () => {
     installStorage({ [STORAGE_KEY]: '"just a string"' });
-    expect(freshStore().getAllProviderConfigs()).toEqual({});
+    const store = freshStore();
+    await store.ensureConfigLoaded();
+    expect(store.getAllProviderConfigs()).toEqual({});
   });
 
-  it("ignores a stored null", () => {
+  it("ignores a stored null", async () => {
     installStorage({ [STORAGE_KEY]: "null" });
-    expect(freshStore().getAllProviderConfigs()).toEqual({});
+    const store = freshStore();
+    await store.ensureConfigLoaded();
+    expect(store.getAllProviderConfigs()).toEqual({});
   });
 });
 
 describe("providerStore — writing", () => {
-  it("writes a key through to storage", () => {
+  it("encrypts the key at rest (never stored in cleartext)", async () => {
     const store = freshStore();
     const { map } = installStorage();
 
     store.setProviderConfig("openai", { apiKey: "sk-new" });
+    await store.flushPersistence();
 
-    expect(JSON.parse(map.get(STORAGE_KEY)!)).toEqual({ openai: { apiKey: "sk-new" } });
+    const stored = map.get(STORAGE_KEY)!;
+    // The persisted blob is an AES-GCM envelope (`<iv>:<ciphertext>`), not the
+    // raw API key.
+    expect(typeof stored).toBe("string");
+    expect(stored).toContain(":");
+    expect(stored).not.toContain("sk-new");
   });
 
   it("trims surrounding whitespace", () => {
@@ -158,6 +180,15 @@ describe("providerStore — writing", () => {
 
     expect(store.getProviderConfig("openai")).toEqual({ apiKey: undefined, baseUrl: "http://x" });
     expect(store.hasApiKey("openai")).toBe(false);
+  });
+
+  it("clears a base URL without disturbing the key", () => {
+    const store = freshStore();
+    store.setProviderConfig("openai", { apiKey: "sk", baseUrl: "http://x" });
+    store.setProviderConfig("openai", { baseUrl: "" });
+
+    expect(store.getProviderConfig("openai")).toEqual({ apiKey: "sk", baseUrl: undefined });
+    expect(store.hasApiKey("openai")).toBe(true);
   });
 
   it("leaves untouched fields alone when only one is updated", () => {
@@ -357,5 +388,90 @@ describe("providerStore — no storage available", () => {
     });
 
     expect(freshStore().getAllProviderConfigs()).toEqual({});
+  });
+});
+
+// The whole point of the store is that a key survives a restart. Every test
+// above exercises either the write side or the read side in isolation — the
+// encrypted round-trip (write → new module instance → read) is what a user
+// actually experiences, and it is the path most likely to rot silently: both
+// halves still "work" while no key ever comes back.
+describe("providerStore — surviving a restart", () => {
+  const KEY_STORAGE_KEY = "study-studio-provider-config-key";
+
+  it("reads back an encrypted config after a fresh module load", async () => {
+    installStorage();
+
+    const first = freshStore();
+    first.setProviderConfig("openai", { apiKey: "sk-round-trip", baseUrl: "http://custom" });
+    await first.flushPersistence();
+
+    // Same storage, brand-new module instance: its cache starts empty and has to
+    // decrypt what the previous instance wrote.
+    const second = freshStore();
+    await second.ensureConfigLoaded();
+
+    expect(second.getProviderConfig("openai")).toEqual({
+      apiKey: "sk-round-trip",
+      baseUrl: "http://custom",
+    });
+    expect(second.hasApiKey("openai")).toBe(true);
+  });
+
+  it("cannot read the blob without the key that wrote it", async () => {
+    const { map } = installStorage();
+
+    const store = freshStore();
+    store.setProviderConfig("openai", { apiKey: "sk-bound-to-key" });
+    await store.flushPersistence();
+    expect(map.get(KEY_STORAGE_KEY)).toBeTruthy();
+
+    // The two slots are independent, which is the point: a config blob that
+    // leaks (backup, sync, stray read) is useless without this one.
+    map.delete(KEY_STORAGE_KEY);
+
+    const reloaded = freshStore();
+    await reloaded.ensureConfigLoaded();
+    expect(reloaded.getProviderConfig("openai")).toEqual({});
+  });
+
+  it("regenerates the key when the stored key slot is corrupt", async () => {
+    installStorage({ [KEY_STORAGE_KEY]: "not-base64!!" });
+
+    const store = freshStore();
+    store.setProviderConfig("openai", { apiKey: "sk-after-corruption" });
+    await store.flushPersistence();
+
+    // A corrupt key must not take the store down with it: a usable key is
+    // minted, written to the slot, and the next start reads it normally.
+    const reloaded = freshStore();
+    await reloaded.ensureConfigLoaded();
+    expect(reloaded.getProviderConfig("openai")).toEqual({ apiKey: "sk-after-corruption" });
+  });
+
+  it("re-encrypts a legacy plaintext blob on the next write", async () => {
+    const { map } = installStorage({
+      [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "sk-legacy" } }),
+    });
+
+    const store = freshStore();
+    await store.ensureConfigLoaded();
+    expect(store.getProviderConfig("openai").apiKey).toBe("sk-legacy");
+
+    store.setProviderConfig("openai", { apiKey: "sk-legacy" });
+    await store.flushPersistence();
+
+    const blob = map.get(STORAGE_KEY)!;
+    expect(blob).toContain(":"); // the `<iv>:<ciphertext>` envelope
+    expect(blob).not.toContain("sk-legacy"); // no cleartext left on disk
+
+    const reloaded = freshStore();
+    await reloaded.ensureConfigLoaded();
+    expect(reloaded.getProviderConfig("openai").apiKey).toBe("sk-legacy");
+  });
+
+  it("resolves immediately when nothing is in flight", async () => {
+    const store = freshStore();
+    await expect(store.flushPersistence()).resolves.toBeUndefined();
   });
 });
