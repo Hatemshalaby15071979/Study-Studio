@@ -165,8 +165,11 @@ const MUTATIONS = [
     id: "providerstore-skips-trim",
     file: "src/lib/ai-runtime/providerStore.ts",
     why: "stored keys are trimmed before being persisted",
-    find: "    next.apiKey = cfg.apiKey ? cfg.apiKey.trim() : undefined;",
-    replace: "    next.apiKey = cfg.apiKey ? cfg.apiKey : undefined;",
+    // Re-pointed 2026-11-15: the keychain rewrite (54ec282) moved the trim
+    // from the old `next.apiKey = ...` line into `setProviderConfig`'s
+    // `trimmed` computation. Same behaviour, new location.
+    find: "    const trimmed = cfg.apiKey ? cfg.apiKey.trim() : \"\";",
+    replace: "    const trimmed = cfg.apiKey;",
     tests: ["src/lib/ai-runtime/__tests__/providerStore.test.ts"],
   },
   {

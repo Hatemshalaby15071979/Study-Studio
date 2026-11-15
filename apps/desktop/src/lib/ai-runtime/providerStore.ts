@@ -1,25 +1,30 @@
 // Runtime-configurable provider state (API keys + base-URL overrides).
 //
-// Providers are constructed once at module load with no credentials (the local
-// OpenAI-compatible profiles have no key; Ollama needs none). This module is
-// the single source of truth for *user-supplied* configuration that has to
-// survive an app restart: online API keys and any base-URL override.
+// Providers are constructed once at module load with no credentials. This module
+// is the single source of truth for user-supplied configuration that has to
+// survive a restart: online API keys and base-URL overrides.
 //
-// Storage backend: localStorage (same store lessons/journeys use). Works
-// identically inside the Tauri webview and a plain browser — no new
-// infrastructure, no Rust dependency. Keys are kept client-side only and are
-// never logged.
+// STORAGE RULES (audit S-2, N-S-1; see docs/prereg/2026-11-11-keychain-and-consent.md):
 //
-// All functions are defensive: they never throw. A missing/unavailable
-// localStorage (SSR, privacy mode) degrades to in-memory state.
+//   * an API key is NEVER written to localStorage/sessionStorage. It goes to the
+//     OS keychain through ./keychain (Rust `keyring`), or it stays in memory for
+//     the session when no keychain exists;
+//   * only non-secret config (base URL) is persisted to web storage;
+//   * a hosted provider (OpenAI / OpenRouter) cannot be configured or applied
+//     until the user gives explicit per-provider consent.
+//
+// All functions are defensive: they never throw. Missing storage degrades to
+// in-memory state.
 
 import type { AIRuntime } from "./runtime";
 import type { AIProvider } from "./types";
+import { ONLINE_PROVIDER_IDS } from "./providerIds";
+import { keychainDelete, keychainGet, keychainSet } from "./keychain";
 
 const STORAGE_KEY = "study-studio-provider-config";
-// Separate slot for the AES-GCM key: the config blob and the key that unlocks
-// it live apart, so a casual read of one yields nothing usable.
+// Legacy AES envelope key slot. Read once to migrate an old build, then deleted.
 const KEY_STORAGE_KEY = "study-studio-provider-config-key";
+const CONSENT_KEY = "study-studio-hosted-consent";
 
 /** Persistent, per-provider user configuration. */
 export interface ProviderConfig {
@@ -31,100 +36,160 @@ export interface ProviderConfig {
 
 type ProviderConfigMap = Record<string, ProviderConfig>;
 
-// In-memory mirror so reads work even when localStorage is unavailable, and so
-// a config set during a single session is consistent across calls. It is the
-// authoritative, synchronous source of truth; persistence is encrypted and
-// best-effort (see persist()).
 let cache: ProviderConfigMap = {};
 let loadPromise: Promise<void> | null = null;
 let persistPromise: Promise<void> | null = null;
+let lastKeyRefusal: string | null = null;
 
-// ─── encryption at rest ──────────────────────────────────────────────────
-// API keys are credentials. They are encrypted with AES-GCM before they touch
-// localStorage; the per-install key lives in a SEPARATE storage slot so a
-// casual read of the config blob yields nothing usable. This is defence-in-
-// depth against at-rest / accidental disclosure (backups, sync, stray reads).
-// It is NOT a substitute for an OS keychain — that is the stronger control and
-// would require wiring a Tauri secret plugin, which is a recommended follow-up.
+const HOSTED = new Set<string>(ONLINE_PROVIDER_IDS);
 
-function bytesToB64(bytes: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i] ?? 0);
-  return btoa(bin);
+function storage(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
 }
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// ─── hosted-provider consent ─────────────────────────────────────────────
+let consent: Record<string, boolean> = loadConsent();
+
+function loadConsent(): Record<string, boolean> {
+  try {
+    const raw = storage()?.getItem(CONSENT_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return isObject(parsed) ? (parsed as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function isHostedProvider(id: string): boolean {
+  return HOSTED.has(id);
+}
+
+/** Record an explicit decision about sending data to a hosted provider. */
+export function setHostedConsent(id: string, granted: boolean): void {
+  if (!id) return;
+  if (granted) consent[id] = true;
+  else delete consent[id];
+  try {
+    storage()?.setItem(CONSENT_KEY, JSON.stringify(consent));
+  } catch {
+    // Consent still applies for this session.
+  }
+}
+
+export function hasHostedConsent(id: string): boolean {
+  return consent[id] === true;
+}
+
+/** The provider whose key write was last refused for missing consent. */
+export function getLastKeyRefusal(): string | null {
+  return lastKeyRefusal;
+}
+
+// ─── legacy AES envelope (migration only) ────────────────────────────────
+// Earlier builds encrypted the config blob with a key stored in a second
+// localStorage slot. That is not a keychain, so it is replaced. These two
+// helpers exist only to read an old install once and move its keys into the
+// keychain; nothing encrypts to web storage any more.
 function b64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64);
-  // Back the view with an explicit ArrayBuffer so the resulting Uint8Array is
-  // typed as `Uint8Array<ArrayBuffer>` and is directly assignable to the
-  // `BufferSource` parameters of `crypto.subtle` (a bare `Uint8Array` is
-  // `Uint8Array<ArrayBufferLike>`, which newer TS DOM lib types reject).
   const buf = new ArrayBuffer(bin.length);
   const out = new Uint8Array(buf);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 
-async function getCryptoKey(): Promise<CryptoKey> {
-  const storage = globalThis.localStorage;
-  if (storage) {
-    const raw = storage.getItem(KEY_STORAGE_KEY);
-    if (raw) {
-      try {
-        return await globalThis.crypto.subtle.importKey(
-          "raw",
-          b64ToBytes(raw),
-          { name: "AES-GCM" },
-          true,
-          ["encrypt", "decrypt"]
-        );
-      } catch {
-        // Corrupt key slot — regenerate below.
-      }
-    }
-  }
-  const key = await globalThis.crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  if (storage) {
-    storage.setItem(
-      KEY_STORAGE_KEY,
-      bytesToB64(new Uint8Array(await globalThis.crypto.subtle.exportKey("raw", key)))
+async function decryptLegacyEnvelope(raw: string): Promise<ProviderConfigMap | null> {
+  const s = storage();
+  if (!s) return null;
+  const sep = raw.indexOf(":");
+  if (sep < 1) return null;
+  const rawKey = s.getItem(KEY_STORAGE_KEY);
+  if (!rawKey) return null;
+  try {
+    const key = await globalThis.crypto.subtle.importKey(
+      "raw",
+      b64ToBytes(rawKey),
+      { name: "AES-GCM" },
+      false,
+      ["decrypt"]
     );
+    const iv = b64ToBytes(raw.slice(0, sep));
+    const data = b64ToBytes(raw.slice(sep + 1));
+    const plain = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+    const parsed = JSON.parse(new TextDecoder().decode(plain));
+    return isObject(parsed) ? (parsed as ProviderConfigMap) : null;
+  } catch {
+    return null;
   }
-  return key;
 }
 
 async function loadInto(): Promise<void> {
-  if (typeof window === "undefined" || !globalThis.localStorage) return;
-  try {
-    const raw = globalThis.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      cache = {};
-      return;
+  const s = storage();
+  cache = {};
+  let legacyKeyMaterial = false;
+
+  if (s) {
+    let raw: string | null = null;
+    try {
+      raw = s.getItem(STORAGE_KEY);
+    } catch {
+      // A storage that throws on read (privacy mode) means "nothing stored".
+      raw = null;
     }
-    // Preferred path: our AES-GCM envelope (`<iv>:<ciphertext>`).
-    const sep = raw.indexOf(":");
-    if (sep > -1) {
-      try {
-        const key = await getCryptoKey();
-        const iv = b64ToBytes(raw.slice(0, sep));
-        const data = b64ToBytes(raw.slice(sep + 1));
-        const plain = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
-        const parsed = JSON.parse(new TextDecoder().decode(plain));
-        cache = parsed && typeof parsed === "object" ? (parsed as ProviderConfigMap) : {};
-        return;
-      } catch {
-        // Not our envelope (or it failed to decrypt) — fall through.
+    if (raw) {
+      let parsed: unknown = null;
+      // A JSON blob starts with "{"; anything else is a legacy `<iv>:<ciphertext>`
+      // envelope. Testing for ":" alone is wrong — a base URL contains one.
+      if (!raw.trimStart().startsWith("{")) {
+        parsed = await decryptLegacyEnvelope(raw);
+        legacyKeyMaterial = parsed !== null;
+      } else {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = null;
+        }
+      }
+      if (isObject(parsed)) {
+        for (const [id, value] of Object.entries(parsed)) {
+          if (!isObject(value)) continue;
+          const safe: ProviderConfig = {};
+          if (typeof value["baseUrl"] === "string" && value["baseUrl"]) safe.baseUrl = value["baseUrl"];
+          if (typeof value["apiKey"] === "string" && value["apiKey"]) {
+            safe.apiKey = value["apiKey"];
+            legacyKeyMaterial = true;
+          }
+          cache[id] = safe;
+        }
       }
     }
-    // Legacy migration: earlier builds stored raw JSON. Adopt it; the next
-    // persist() re-encrypts it. Invalid content degrades to empty.
-    const parsed = JSON.parse(raw);
-    cache = parsed && typeof parsed === "object" ? (parsed as ProviderConfigMap) : {};
-  } catch {
-    cache = {};
+  }
+
+  // The keychain is the source of truth for keys. Read every hosted provider and
+  // every provider we already know about.
+  const ids = new Set<string>([...Object.keys(cache), ...ONLINE_PROVIDER_IDS]);
+  for (const id of ids) {
+    const secret = await keychainGet(id);
+    if (secret) cache[id] = { ...(cache[id] ?? {}), apiKey: secret };
+  }
+
+  // Move any key found in web storage into the keychain, then rewrite storage
+  // without it. If the keychain is unavailable the key stays in memory only.
+  if (legacyKeyMaterial) {
+    await persist();
+    try {
+      s?.removeItem(KEY_STORAGE_KEY);
+    } catch {
+      // best effort
+    }
   }
 }
 
@@ -135,22 +200,21 @@ export function ensureConfigLoaded(): Promise<void> {
 }
 
 async function persist(): Promise<void> {
-  if (typeof window === "undefined" || !globalThis.localStorage) return;
-  try {
-    const key = await getCryptoKey();
-    const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-    const ct = await globalThis.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      new TextEncoder().encode(JSON.stringify(cache))
-    );
-    globalThis.localStorage.setItem(
-      STORAGE_KEY,
-      `${bytesToB64(iv)}:${bytesToB64(new Uint8Array(ct))}`
-    );
-  } catch {
-    // Quota / privacy mode / crypto unavailable — state still lives in-memory.
+  const s = storage();
+  if (!s) return;
+  const publicConfig: Record<string, { baseUrl: string }> = {};
+  const keyOps: Promise<boolean>[] = [];
+  for (const [id, cfg] of Object.entries(cache)) {
+    if (cfg.baseUrl) publicConfig[id] = { baseUrl: cfg.baseUrl };
+    if (cfg.apiKey) keyOps.push(keychainSet(id, cfg.apiKey));
+    else keyOps.push(keychainDelete(id));
   }
+  try {
+    s.setItem(STORAGE_KEY, JSON.stringify(publicConfig));
+  } catch {
+    // Quota / privacy mode — state still lives in memory.
+  }
+  await Promise.all(keyOps);
 }
 
 /** Test helper: resolve once any in-flight persistence has settled. */
@@ -161,31 +225,48 @@ export function flushPersistence(): Promise<void> {
 // Begin loading persisted config as early as possible.
 void ensureConfigLoaded();
 
-/** Read the stored config for a provider (or all providers when id omitted). */
+/** Read the stored config for a provider (no key when consent is missing). */
 export function getProviderConfig(id: string): ProviderConfig {
-  return { ...(cache[id] ?? {}) };
-}
-export function getAllProviderConfigs(): ProviderConfigMap {
-  const out: ProviderConfigMap = {};
-  for (const [id, cfg] of Object.entries(cache)) out[id] = { ...cfg };
+  const cfg = cache[id] ?? {};
+  const out: ProviderConfig = {};
+  if (cfg.baseUrl) out.baseUrl = cfg.baseUrl;
+  if (cfg.apiKey && (!isHostedProvider(id) || hasHostedConsent(id))) out.apiKey = cfg.apiKey;
   return out;
 }
 
-/** Whether a non-empty API key is stored for the provider. */
+export function getAllProviderConfigs(): ProviderConfigMap {
+  const out: ProviderConfigMap = {};
+  for (const id of Object.keys(cache)) {
+    const cfg = getProviderConfig(id);
+    if (Object.keys(cfg).length) out[id] = cfg;
+  }
+  return out;
+}
+
+/** Whether a usable API key is stored for the provider. */
 export function hasApiKey(id: string): boolean {
-  return Boolean(cache[id]?.apiKey);
+  return Boolean(cache[id]?.apiKey) && (!isHostedProvider(id) || hasHostedConsent(id));
 }
 
 /**
  * Persist config for a provider. Only defined fields are written; passing
  * `undefined` for a field clears it. Merges with existing stored values.
+ *
+ * A hosted provider key is refused (and recorded in `getLastKeyRefusal()`)
+ * until `setHostedConsent(id, true)` has been called.
  */
 export function setProviderConfig(id: string, cfg: ProviderConfig): void {
   if (!id) return;
   const current = cache[id] ?? {};
   const next: ProviderConfig = { ...current };
   if (cfg.apiKey !== undefined) {
-    next.apiKey = cfg.apiKey ? cfg.apiKey.trim() : undefined;
+    const trimmed = cfg.apiKey ? cfg.apiKey.trim() : "";
+    if (trimmed && isHostedProvider(id) && !hasHostedConsent(id)) {
+      lastKeyRefusal = id;
+    } else {
+      next.apiKey = trimmed || undefined;
+      if (trimmed) lastKeyRefusal = null;
+    }
   }
   if (cfg.baseUrl !== undefined) {
     next.baseUrl = cfg.baseUrl ? cfg.baseUrl.trim() : undefined;
@@ -203,14 +284,16 @@ export function clearProviderConfig(id: string): void {
 
 /**
  * Apply a stored config to a provider instance via its optional mutators.
- * No-op for providers without mutators (Ollama) or with no stored config.
- * Never throws.
+ * A hosted key is applied only with explicit consent. Never throws.
  */
 export function applyConfig(provider: AIProvider): void {
-  const cfg = cache[provider.descriptor.id];
+  const id = provider.descriptor.id;
+  const cfg = cache[id];
   if (!cfg) return;
   try {
-    if (cfg.apiKey && provider.setApiKey) provider.setApiKey(cfg.apiKey);
+    if (cfg.apiKey && (!isHostedProvider(id) || hasHostedConsent(id)) && provider.setApiKey) {
+      provider.setApiKey(cfg.apiKey);
+    }
     if (cfg.baseUrl && provider.setBaseUrl) provider.setBaseUrl(cfg.baseUrl);
   } catch {
     // Reconfiguration is best-effort; never block on it.
@@ -219,8 +302,8 @@ export function applyConfig(provider: AIProvider): void {
 
 /**
  * Apply ALL stored configs to every provider in a runtime. Called once at
- * module load (before the first discovery) and again from the Settings page
- * after the user edits a key.
+ * module load (before the first discovery) and again from Settings after an
+ * edit.
  */
 export function applyStoredConfigs(runtime: AIRuntime): void {
   for (const provider of runtime.providers.all()) applyConfig(provider);

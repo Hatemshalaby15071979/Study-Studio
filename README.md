@@ -7,7 +7,7 @@
 ![typescript](https://img.shields.io/badge/typescript-app-3178c6)
 ![status](https://img.shields.io/badge/status-0.2.1%20released-brightgreen)
 
-**A private AI tutor that runs on your own computer — your lessons never leave the machine.**
+**A private AI tutor that runs on your own computer.** Local inference is the default and no data leaves the device unless you explicitly enable a hosted provider (OpenAI / OpenRouter) — then the text you submit is sent to that provider under its terms.
 
 </div>
 
@@ -16,7 +16,8 @@
 Study Studio is a desktop and browser app that turns any topic into a **lesson,
 a quiz, a glossary, and a bilingual podcast script**. It uses an AI model that
 runs on *your* machine, so your notes and answers stay with you. There is no
-account to create and nothing is sent to the cloud.
+account to create, and nothing is sent anywhere by default. The optional hosted
+providers are off until you turn one on and give explicit consent.
 
 If you are a student who wants to study with AI help — without handing your
 material to a hosted service — this is built for you. You do not need to be a
@@ -53,9 +54,13 @@ hosted service.
 
 ## Is it private and safe? Straight answers
 
-- **Local-first.** It talks to a model on your own machine. Your lessons and
-  answers do not leave the computer.
-- **No account, no cloud.** Nothing is uploaded and there is no sign-up.
+- **Local-first by default.** It talks to a model on your own machine. Your lessons
+  and answers do not leave the computer — unless you explicitly enable a hosted
+  provider (OpenAI / OpenRouter), in which case the text you submit is sent to that
+  provider under its terms. A stored API key goes to the OS keychain, never to web
+  storage, and a hosted provider is refused until you consent.
+- **No account, no cloud by default.** There is no sign-up and nothing is uploaded
+  unless you enable a hosted provider.
 - **Verified.** 1,040 automated tests pass, the code is 86% covered, and all CI
   checks are green (including mutation testing). The current release is **v0.2.1**.
 - **Scored privately.** Quiz answers are checked by a local scoring service

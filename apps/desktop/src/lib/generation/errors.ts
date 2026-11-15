@@ -107,7 +107,9 @@ export function describeSchemaFailure(e: ZodError): string {
     .map((issue) => {
       const path = issue.path?.length ? issue.path.join(".") : "top-level";
       const expected = (issue as { expected?: string | number }).expected;
-      const received = (issue as { received?: string | number }).received;
+      // v3 called it `received`; v4 calls it `input` — accept either so the
+      // message stays accurate across versions.
+      const received = (issue as { received?: string | number }).received ?? (issue as { input?: string | number }).input;
       return `"${path}" (expected ${expected !== undefined ? expected : "a valid value"}, got ${received !== undefined ? received : "nothing"})`;
     })
     .join("; ");
