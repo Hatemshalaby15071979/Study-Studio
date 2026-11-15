@@ -113,7 +113,7 @@ describe("providerStore — reading", () => {
       [CONSENT_KEY]: JSON.stringify({ openai: true }),
     });
 
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     await store.ensureConfigLoaded();
 
     expect(store.getProviderConfig("openai")).toEqual({
@@ -124,8 +124,11 @@ describe("providerStore — reading", () => {
   });
 
   it("returns a copy, so callers cannot mutate the cache", async () => {
-    installStorage({ [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "sk" } }) });
-    const store = freshStore();
+    installStorage({
+      [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "sk" } }),
+      [CONSENT_KEY]: JSON.stringify({ openai: true }),
+    });
+    const store = withConsent(freshStore(), "openai");
     await store.ensureConfigLoaded();
 
     const cfg = store.getProviderConfig("openai");
@@ -138,7 +141,7 @@ describe("providerStore — reading", () => {
     installStorage({
       [STORAGE_KEY]: JSON.stringify({ a: { apiKey: "1" }, b: { baseUrl: "http://b" } }),
     });
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     await store.ensureConfigLoaded();
 
     const all = store.getAllProviderConfigs();
@@ -150,13 +153,13 @@ describe("providerStore — reading", () => {
 
   it("treats an empty key as absent", async () => {
     installStorage({ [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "" } }) });
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     await store.ensureConfigLoaded();
     expect(store.hasApiKey("openai")).toBe(false);
   });
 
   it("reports nothing for a provider it has never seen", () => {
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     expect(store.getProviderConfig("never-configured")).toEqual({});
     expect(store.hasApiKey("never-configured")).toBe(false);
   });
@@ -164,7 +167,7 @@ describe("providerStore — reading", () => {
   it("survives corrupt JSON on disk", async () => {
     installStorage({ [STORAGE_KEY]: "{not json" });
 
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     await store.ensureConfigLoaded();
 
     expect(store.getProviderConfig("openai")).toEqual({});
@@ -173,22 +176,21 @@ describe("providerStore — reading", () => {
 
   it("ignores a stored value that is not an object", async () => {
     installStorage({ [STORAGE_KEY]: '"just a string"' });
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     await store.ensureConfigLoaded();
     expect(store.getAllProviderConfigs()).toEqual({});
   });
 
   it("ignores a stored null", async () => {
     installStorage({ [STORAGE_KEY]: "null" });
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     await store.ensureConfigLoaded();
     expect(store.getAllProviderConfigs()).toEqual({});
   });
 });
 
 describe("providerStore — writing", () => {
-  it("encrypts the key at rest (never stored in cleartext)", async () => {
-    const store = freshStore();
+  it("never writes the key to web storage, and sends it to the keychain", async () => {
     const { map } = installStorage();
     const { store, memory } = freshStoreWithKeychain();
 
@@ -196,12 +198,38 @@ describe("providerStore — writing", () => {
     store.setProviderConfig("openai", { apiKey: "sk-new" });
     await store.flushPersistence();
 
-    const stored = map.get(STORAGE_KEY)!;
-    // The persisted blob is an AES-GCM envelope (`<iv>:<ciphertext>`), not the
-    // raw API key.
-    expect(typeof stored).toBe("string");
-    expect(stored).toContain(":");
-    expect(stored).not.toContain("sk-new");
+    expect([...map.values()].join("\n")).not.toContain("sk-new");
+    expect(map.get(STORAGE_KEY) ?? "").not.toContain("sk-new");
+    expect(map.has("study-studio-provider-config-key")).toBe(false);
+    expect(memory.get("openai")).toBe("sk-new");
+  });
+
+  it("refuses a hosted provider key until consent is explicit", async () => {
+    installStorage();
+    const { store, memory } = freshStoreWithKeychain();
+
+    store.setProviderConfig("openai", { apiKey: "sk-unconsented" });
+
+    expect(store.hasApiKey("openai")).toBe(false);
+    expect(store.getLastKeyRefusal()).toBe("openai");
+    expect(memory.get("openai")).toBeUndefined();
+
+    store.setHostedConsent("openai", true);
+    store.setProviderConfig("openai", { apiKey: "sk-unconsented" });
+    await store.flushPersistence();
+
+    expect(store.hasApiKey("openai")).toBe(true);
+    expect(memory.get("openai")).toBe("sk-unconsented");
+  });
+
+  it("does not apply a hosted key without consent", () => {
+    const store = withConsent(freshStore(), "openai");
+    store.setProviderConfig("openai", { apiKey: "sk", baseUrl: "http://x" });
+    store.setHostedConsent("openai", false);
+    const p = provider("openai");
+    store.applyConfig(p);
+    expect(p.setApiKey).not.toHaveBeenCalled();
+    expect(p.setBaseUrl).toHaveBeenCalledWith("http://x");
   });
 
   it("trims surrounding whitespace", () => {
@@ -224,7 +252,7 @@ describe("providerStore — writing", () => {
   });
 
   it("clears a base URL without disturbing the key", () => {
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     store.setProviderConfig("openai", { apiKey: "sk", baseUrl: "http://x" });
     store.setProviderConfig("openai", { baseUrl: "" });
 
@@ -432,87 +460,208 @@ describe("providerStore — no storage available", () => {
   });
 });
 
-// The whole point of the store is that a key survives a restart. Every test
-// above exercises either the write side or the read side in isolation — the
-// encrypted round-trip (write → new module instance → read) is what a user
-// actually experiences, and it is the path most likely to rot silently: both
-// halves still "work" while no key ever comes back.
+// A key has to survive a restart. With the keychain this is a different path
+// than it used to be: the module reloads, reads only the non-secret base URL
+// from web storage, and asks the keychain for the credential.
 describe("providerStore — surviving a restart", () => {
-  const KEY_STORAGE_KEY = "study-studio-provider-config-key";
+  it("restores the key from the keychain and only the base URL from storage", async () => {
+    const { map } = installStorage();
+    const memory = new Map<string, string>();
 
-  it("reads back an encrypted config after a fresh module load", async () => {
-    installStorage();
-
-    const first = freshStore();
-    first.setProviderConfig("openai", { apiKey: "sk-round-trip", baseUrl: "http://custom" });
+    const first = freshStoreWithKeychain(memory).store;
+    first.setHostedConsent("openai", true);
+    first.setProviderConfig("openai", { apiKey: "sk-survives", baseUrl: "http://x" });
     await first.flushPersistence();
 
-    // Same storage, brand-new module instance: its cache starts empty and has to
-    // decrypt what the previous instance wrote.
-    const second = freshStore();
+    expect(map.get(STORAGE_KEY) ?? "").not.toContain("sk-survives");
+    expect(map.get(STORAGE_KEY) ?? "").toContain("http://x");
+
+    const second = freshStoreWithKeychain(memory).store;
+    second.setHostedConsent("openai", true);
     await second.ensureConfigLoaded();
 
     expect(second.getProviderConfig("openai")).toEqual({
-      apiKey: "sk-round-trip",
-      baseUrl: "http://custom",
+      apiKey: "sk-survives",
+      baseUrl: "http://x",
     });
-    expect(second.hasApiKey("openai")).toBe(true);
   });
 
-  it("cannot read the blob without the key that wrote it", async () => {
+  it("keeps the key in memory when the keychain is unavailable, never on disk", async () => {
     const { map } = installStorage();
+    const { store } = freshStoreWithKeychain(new Map(), false);
 
-    const store = freshStore();
-    store.setProviderConfig("openai", { apiKey: "sk-bound-to-key" });
-    await store.flushPersistence();
-    expect(map.get(KEY_STORAGE_KEY)).toBeTruthy();
-
-    // The two slots are independent, which is the point: a config blob that
-    // leaks (backup, sync, stray read) is useless without this one.
-    map.delete(KEY_STORAGE_KEY);
-
-    const reloaded = freshStore();
-    await reloaded.ensureConfigLoaded();
-    expect(reloaded.getProviderConfig("openai")).toEqual({});
-  });
-
-  it("regenerates the key when the stored key slot is corrupt", async () => {
-    installStorage({ [KEY_STORAGE_KEY]: "not-base64!!" });
-
-    const store = freshStore();
-    store.setProviderConfig("openai", { apiKey: "sk-after-corruption" });
+    store.setHostedConsent("openai", true);
+    store.setProviderConfig("openai", { apiKey: "sk-memory-only", baseUrl: "http://x" });
     await store.flushPersistence();
 
-    // A corrupt key must not take the store down with it: a usable key is
-    // minted, written to the slot, and the next start reads it normally.
-    const reloaded = freshStore();
-    await reloaded.ensureConfigLoaded();
-    expect(reloaded.getProviderConfig("openai")).toEqual({ apiKey: "sk-after-corruption" });
+    // Usable for this session...
+    expect(store.hasApiKey("openai")).toBe(true);
+    // ...but never written to web storage.
+    expect(map.get(STORAGE_KEY) ?? "").not.toContain("sk-memory-only");
+    expect([...map.keys()].join(",")).not.toContain("provider-config-key");
   });
 
-  it("re-encrypts a legacy plaintext blob on the next write", async () => {
+  it("migrates a legacy plaintext blob into the keychain and strips it", async () => {
     const { map } = installStorage({
-      [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "sk-legacy" } }),
+      [STORAGE_KEY]: JSON.stringify({ openai: { apiKey: "sk-legacy", baseUrl: "http://x" } }),
     });
 
-    const store = freshStore();
+    const { store, memory } = freshStoreWithKeychain();
+    store.setHostedConsent("openai", true);
     await store.ensureConfigLoaded();
+
     expect(store.getProviderConfig("openai").apiKey).toBe("sk-legacy");
-
-    store.setProviderConfig("openai", { apiKey: "sk-legacy" });
-    await store.flushPersistence();
-
-    const blob = map.get(STORAGE_KEY)!;
-    expect(blob).toContain(":"); // the `<iv>:<ciphertext>` envelope
-    expect(blob).not.toContain("sk-legacy"); // no cleartext left on disk
-
-    const reloaded = freshStore();
-    await reloaded.ensureConfigLoaded();
-    expect(reloaded.getProviderConfig("openai").apiKey).toBe("sk-legacy");
+    expect(memory.get("openai")).toBe("sk-legacy");
+    expect(map.get(STORAGE_KEY) ?? "").not.toContain("sk-legacy");
+    expect(map.get(STORAGE_KEY) ?? "").toContain("http://x");
   });
 
   it("resolves immediately when nothing is in flight", async () => {
-    const store = freshStore();
+    const store = withConsent(freshStore(), "openai");
     await expect(store.flushPersistence()).resolves.toBeUndefined();
+  });
+});
+
+// The legacy AES-envelope migration (pre-keychain builds) is the one load
+// path with real crypto in it, and its failure modes are silent by design —
+// every one of them degrades to "key not migrated". Each degradation is
+// pinned here so a future refactor cannot quietly drop the migration.
+describe("providerStore — legacy AES envelope migration", () => {
+  const KEY_STORAGE_KEY = "study-studio-provider-config-key";
+
+  function b64(bytes: Uint8Array | ArrayBuffer): string {
+    return Buffer.from(new Uint8Array(bytes)).toString("base64");
+  }
+
+  /** Build a legacy `<iv>:<ciphertext>` envelope exactly as the old build did. */
+  async function makeEnvelope(plaintext: string) {
+    const rawKey = new Uint8Array(32);
+    crypto.getRandomValues(rawKey);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      rawKey,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt", "decrypt"]
+    );
+    const iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+    const cipher = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      new TextEncoder().encode(plaintext)
+    );
+    return { keyB64: b64(rawKey), envelope: `${b64(iv)}:${b64(cipher)}` };
+  }
+
+  it("migrates a legacy AES envelope into the keychain and strips the key slot", async () => {
+    const { keyB64, envelope } = await makeEnvelope(
+      JSON.stringify({ openai: { apiKey: "sk-encrypted", baseUrl: "http://legacy" } })
+    );
+    const { map } = installStorage({
+      [STORAGE_KEY]: envelope,
+      [KEY_STORAGE_KEY]: keyB64,
+    });
+
+    const { store, memory } = freshStoreWithKeychain();
+    store.setHostedConsent("openai", true);
+    await store.ensureConfigLoaded();
+
+    expect(store.getProviderConfig("openai")).toEqual({
+      apiKey: "sk-encrypted",
+      baseUrl: "http://legacy",
+    });
+    expect(memory.get("openai")).toBe("sk-encrypted");
+    expect(map.get(STORAGE_KEY) ?? "").not.toContain("sk-encrypted");
+    expect(map.has(KEY_STORAGE_KEY)).toBe(false);
+  });
+
+  it("ignores an envelope when the legacy key slot is gone", async () => {
+    const { envelope } = await makeEnvelope(
+      JSON.stringify({ openai: { apiKey: "sk-orphan" } })
+    );
+    const { map } = installStorage({ [STORAGE_KEY]: envelope });
+
+    const { store, memory } = freshStoreWithKeychain();
+    await store.ensureConfigLoaded();
+
+    expect(store.getProviderConfig("openai")).toEqual({});
+    expect(memory.size).toBe(0);
+    // Nothing was migrated, so the envelope is left exactly as it was found.
+    expect(map.get(STORAGE_KEY)).toBe(envelope);
+  });
+
+  it("ignores an envelope that fails to decrypt", async () => {
+    const { keyB64 } = await makeEnvelope("{}");
+    // Valid key slot, but the ciphertext is not what that key produced.
+    installStorage({
+      [STORAGE_KEY]: `aaaa:${Buffer.from("corrupt ciphertext").toString("base64")}`,
+      [KEY_STORAGE_KEY]: keyB64,
+    });
+
+    const { store, memory } = freshStoreWithKeychain();
+    await store.ensureConfigLoaded();
+
+    expect(memory.size).toBe(0);
+    expect(store.getProviderConfig("openai")).toEqual({});
+  });
+
+  it("ignores a decrypted payload that is not an object", async () => {
+    const { keyB64, envelope } = await makeEnvelope("42");
+    const { map } = installStorage({
+      [STORAGE_KEY]: envelope,
+      [KEY_STORAGE_KEY]: keyB64,
+    });
+
+    const { store, memory } = freshStoreWithKeychain();
+    await store.ensureConfigLoaded();
+
+    expect(memory.size).toBe(0);
+    expect(store.getProviderConfig("openai")).toEqual({});
+    // Not key material as far as the store can tell — the slots are untouched.
+    expect(map.has(KEY_STORAGE_KEY)).toBe(true);
+  });
+
+  it("treats a consent blob that is not an object as no consent", () => {
+    installStorage({ [CONSENT_KEY]: "42" });
+
+    expect(freshStore().hasHostedConsent("openai")).toBe(false);
+  });
+
+  it("ignores an empty consent id", () => {
+    const store = freshStore();
+
+    store.setHostedConsent("", true);
+
+    expect(store.hasHostedConsent("")).toBe(false);
+    expect(store.hasHostedConsent("openai")).toBe(false);
+  });
+
+  it("skips a provider entry that is not an object", async () => {
+    installStorage({ [STORAGE_KEY]: JSON.stringify({ openai: 42 }) });
+
+    const { store } = freshStoreWithKeychain();
+    await store.ensureConfigLoaded();
+
+    expect(store.getProviderConfig("openai")).toEqual({});
+  });
+
+  it("survives a localStorage property that throws on access", () => {
+    installStorage();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError");
+      },
+    });
+    let configs: ReturnType<Store["getAllProviderConfigs"]> | undefined;
+    try {
+      configs = freshStore().getAllProviderConfigs();
+    } finally {
+      // Restore a plain value property: jest's own machinery touches this
+      // global after the test, and a permanently throwing getter breaks it.
+      installStorage();
+    }
+    expect(configs).toEqual({});
   });
 });
