@@ -23,7 +23,7 @@ export const evaluateQuizSchema = z.object({
     options: z.array(z.string().min(1)).min(2, 'At least 2 options required'),
     explanation: z.string().min(1)
   })).min(1, 'At least one question required'),
-  answers: z.record(z.number().int().min(0)),
+  answers: z.record(z.string(), z.number().int().min(0)),
   difficulty: z.enum(['beginner', 'intermediate', 'expert']).default('intermediate'),
   lessonTitle: z.string().min(1)
 });
