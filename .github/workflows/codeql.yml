@@ -40,11 +40,11 @@ jobs:
       matrix:
         language: [javascript-typescript, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Setup Node
         if: matrix.language == 'javascript-typescript'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
           cache: npm
@@ -52,12 +52,12 @@ jobs:
 
       - name: Setup Rust
         if: matrix.language == 'rust'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           toolchain: "1.96.0"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@b7b84b636b4f90c9b31da1bc5f72bfadd5b31410
         with:
           languages: ${{ matrix.language }}
           # Rust does not support the manual build mode: the extractor has
@@ -69,6 +69,6 @@ jobs:
           build-mode: none
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@b7b84b636b4f90c9b31da1bc5f72bfadd5b31410
         with:
           category: "/language:${{ matrix.language }}"

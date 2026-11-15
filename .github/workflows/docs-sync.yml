@@ -17,6 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Sync docs status block
-        uses: Hatemshalaby15071979/Hatemshalaby15071979/.github/actions/docs-sync@master
+        uses: Hatemshalaby15071979/Hatemshalaby15071979/.github/actions/docs-sync@aee952f6b4ff2293576e60eedf8e504f9f7deaa2
         with:
           profile: _docs_profile.json
