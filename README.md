@@ -14,7 +14,7 @@
 </div>
 
 <p float="left">
-  <strong>Study Studio 0.2.1<br></strong><br>
+  <strong>Study Studio 0.2.1</strong><br>
   <span style="font-size:0.9em;color:#93aaa0">by Helix Solutions</span>
 </p>
 
