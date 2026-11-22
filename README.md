@@ -13,6 +13,11 @@
 
 </div>
 
+<p float="left">
+  <strong>Study Studio 0.2.1<br></strong><br>
+  <span style="font-size:0.9em;color:#93aaa0">by Helix Solutions</span>
+</p>
+
 ## What it is
 
 Study Studio is a desktop and browser app that turns any topic into a **lesson,
