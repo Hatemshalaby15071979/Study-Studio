@@ -189,3 +189,23 @@ jobs:
       # is always clean, which is the only place it can run unconditionally.
       - name: Mutation testing
         run: npm run check:mutations
+
+  # GOVERNANCE.md section 2: the root holds only the documented set. The gate parses
+  # that table out of GOVERNANCE.md, asserts both directions (every named document is
+  # present, and no unlisted .md/.txt sits at the root), and self-tests that it fails
+  # closed. It needs nothing but python3 and a checkout.
+  #
+  # working-directory is stated explicitly: this workflow sets a repository-wide
+  # default of apps/desktop, and the gate must run at the root.
+  governance:
+    name: root-document hygiene
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - name: Root-document hygiene (GOVERNANCE.md section 2)
+        run: |
+          python3 scripts/check_root_docs.py
+          python3 scripts/check_root_docs.py --self-test
