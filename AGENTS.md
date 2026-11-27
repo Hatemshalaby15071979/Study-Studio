@@ -76,3 +76,19 @@ Verification: Planned — `python3 scripts/check_root_docs.py` and `--self-test`
 Left undone: Nothing at sign-in.
 
 Sensitive: `git push origin main` (owner's instruction in chat, 2026-11-27). No force push, no history rewrite, no secrets.
+
+## [2026-11-27 05:17 EET] — sami (OpenMausBot), owner-authorised governance landing
+
+STATUS: SIGN-OUT (landing complete)
+
+Task: Bring this repository onto the portfolio governance standard. Done.
+
+Touched: `AGENTS.md`, `GOVERNANCE.md` (both new); `CONSTITUTION.md` (new, md5 `7b3339292cb98b1e1fe67b768ab1d79d`, the portfolio text, byte-identical to the copy in the other governed repositories); `scripts/check_root_docs.py` (new, md5 `35fc37ab16ff4461a33d4e2dcaedb7bf`); `.github/workflows/ci.yml` (one new `governance` job). Nothing moved, renamed or deleted — the root already held only `README.md`, `CHANGELOG.md` and `SECURITY.md` beyond non-documents.
+
+Why: The repository had a README, a changelog and a security policy, but no charter, no portfolio constitution and no written policy for the root — and therefore nothing that could catch a document drifting into it. It now has all four, plus the shared gate.
+
+Verification: `scripts/check_root_docs.py` → "OK — Study-Studio/ holds only the GOVERNANCE.md section 2 set" (7 table rows, 7 allowed root documents); `--self-test` → 7/7 cases behaved. The `governance` job parses as valid YAML (jobs: `static`, `test`, `build`, `mutations`, `governance`) and carries `working-directory: .`, which it needs because this workflow sets a repository-wide default of `apps/desktop` — without it the gate would have run in the wrong directory. No application file was touched, so the app's own gates are unaffected by construction; the GitHub Actions run on `bebe1af` and the sign-out commit is the record.
+
+Left undone: Nothing failing. One thing for the owner, not resolved here: this repository carries **three** constitution-shaped documents — the root `CONSTITUTION.md` added today, `constitution.me` ("Constitution 000 — Day Zero", linked from five files) and `docs/HELIX_CONSTITUTION.md` (called "governing" by two docs). The clean-code policy forbids duplicates, so this is a real defect, but both older texts are linked from code-adjacent docs and only the owner should decide which survives. Recorded in `GOVERNANCE.md` section 2.
+
+Sensitive: `git push origin main` (owner's instruction in chat, 2026-11-27). No force push, no history rewrite, no secrets.
